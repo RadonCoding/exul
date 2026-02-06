@@ -1,0 +1,11 @@
+[package]
+name = "compiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.53", features = ["derive"] }
+regex = "1.12.3"
+iced-x86 = "1.21.0"
+ir = { path = "../ir" }
+emitter = { path = "../emitter" }

@@ -1,0 +1,3 @@
+[workspace]
+members = ["compiler", "engine", "emitter", "ir"]
+resolver = "2"
