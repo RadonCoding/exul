@@ -1,16 +1,15 @@
-use crate::convention::Convention;
 use crate::emitter::Emitter;
-use intermediate::{Function, InstructionKind, Value};
+use crate::{convention::Convention, emitter::FunctionContext};
+use intermediate::{InstructionKind, Value};
 use std::collections::HashMap;
 
 impl<C: Convention> Emitter<C> {
-    pub(crate) fn run_allocator(&mut self, func: &Function) {
-        self.allocs.clear();
+    pub(crate) fn run_allocator(&mut self, ctx: &mut FunctionContext) {
         let mut deaths = HashMap::new();
         let volatiles = self.convention.volatile_regs();
         let mut next = 0;
 
-        for (i, instr) in func.instructions.iter().enumerate() {
+        for (i, instr) in ctx.instructions.iter().enumerate() {
             match &instr.kind {
                 InstructionKind::Add { left, right, .. }
                 | InstructionKind::Eq { left, right, .. } => {
@@ -34,7 +33,7 @@ impl<C: Convention> Emitter<C> {
             }
         }
 
-        for (i, instruction) in func.instructions.iter().enumerate() {
+        for (i, instruction) in ctx.instructions.iter().enumerate() {
             let (dst, left) = match &instruction.kind {
                 InstructionKind::Add { dst, left, .. } | InstructionKind::Eq { dst, left, .. } => {
                     (Some(*dst), Some(left))
@@ -46,12 +45,12 @@ impl<C: Convention> Emitter<C> {
             if let Some(d) = dst {
                 if let Some(Value::Symbol(s)) = left {
                     if deaths.get(&s) == Some(&i) {
-                        let r = self.allocs[&s];
-                        self.allocs.insert(d, r);
+                        let r = ctx.allocs[&s];
+                        ctx.allocs.insert(d, r);
                         continue;
                     }
                 }
-                self.allocs.insert(d, volatiles[next % volatiles.len()]);
+                ctx.allocs.insert(d, volatiles[next % volatiles.len()]);
                 next += 1;
             }
         }

@@ -58,13 +58,13 @@ impl<'a> Parser<'a> {
     }
 
     pub fn advance(&mut self) -> &Token<'a> {
-        if !self.is_at_end() {
+        if !self.is_eof() {
             self.cursor += 1;
         }
         self.previous()
     }
 
-    pub fn is_at_end(&self) -> bool {
+    pub fn is_eof(&self) -> bool {
         self.cursor == self.tokens.len() - 1
     }
 
@@ -95,7 +95,7 @@ pub fn parse(tokens: Vec<Token>) -> Result<Tree, Box<dyn Error>> {
     let mut parser = Parser::new(tokens);
     let mut decls = Vec::new();
 
-    while !parser.is_at_end() {
+    while !parser.is_eof() {
         decls.push(Decl::parse(&mut parser)?);
     }
 

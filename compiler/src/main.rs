@@ -5,7 +5,7 @@ mod lex;
 use clap::Parser;
 use emitter::convention::MicrosoftX64;
 use iced_x86::{Decoder, DecoderOptions, Formatter, NasmFormatter};
-use std::{error::Error, fs, path::PathBuf};
+use std::{error::Error, fs, path::PathBuf, time::Instant};
 
 #[derive(Parser)]
 #[command(author, version)]
@@ -78,27 +78,34 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let input = fs::read(&args.input)?;
 
+    let start = Instant::now();
+
     let tokens = lex::tokenize(&input)?;
-
-    if args.tokens {
-        println!("{:#?}", tokens);
-    }
-
     let tree = ast::parse(tokens)?;
-
-    if args.ast {
-        println!("{:#?}", tree);
-    }
-
     let module = lower::generate(tree)?;
-
-    if args.ir {
-        println!("{:#?}", module);
-    }
-
     let bytes = emitter::emit::<MicrosoftX64>(args.ip, module)?;
 
+    let duration = start.elapsed();
+
+    if args.tokens {
+        println!("{:#?}", lex::tokenize(&input)?);
+    }
+
+    if args.ast {
+        println!("{:#?}", ast::parse(lex::tokenize(&input)?)?);
+    }
+
+    if args.ir {
+        println!("{:#?}", lower::generate(ast::parse(lex::tokenize(&input)?)?)?);
+    }
+
     dump(&bytes, args.ip);
+
+    println!(
+        "Compilation took {}.{:03} seconds",
+        duration.as_secs(),
+        duration.subsec_millis()
+    );
 
     Ok(())
 }

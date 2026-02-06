@@ -30,7 +30,7 @@ impl<'a> Stmt<'a> {
 
         let mut stmts = Vec::new();
 
-        while !parser.check(TokenKind::RBrace) && !parser.is_at_end() {
+        while !parser.check(TokenKind::RBrace) && !parser.is_eof() {
             stmts.push(Stmt::parse(parser)?);
         }
 

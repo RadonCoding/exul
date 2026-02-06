@@ -43,7 +43,7 @@ impl<'a> Parse<'a> for FunctionDecl<'a> {
         parser.consume(TokenKind::LBrace, "'{'")?;
 
         let mut body = Vec::new();
-        while !parser.check(TokenKind::RBrace) && !parser.is_at_end() {
+        while !parser.check(TokenKind::RBrace) && !parser.is_empty() {
             body.push(Stmt::parse(parser)?);
         }
 
