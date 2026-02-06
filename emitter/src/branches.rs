@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use iced_x86::code_asm::{get_gpr32, get_gpr64, rbp, rsp};
-use ir::{InstructionKind, Value};
+use intermediate::{InstructionKind, Value};
 
 use crate::{convention::Convention, emitter::Emitter};
 

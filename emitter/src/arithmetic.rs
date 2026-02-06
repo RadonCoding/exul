@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use ir::{InstructionKind, Value};
+use intermediate::{InstructionKind, Value};
 
 use crate::{convention::Convention, emitter::Emitter};
 

@@ -1,8 +1,8 @@
-use ir::{Context, InstructionKind, SymbolId, Value, symbols::Symbols};
+use intermediate::{Context, InstructionKind, SymbolId, Value, symbols::Symbols};
 
 use crate::{
     ast::stmt::{Stmt, StmtKind},
-    ir::Generate,
+    lower::Generate,
 };
 use std::error::Error;
 

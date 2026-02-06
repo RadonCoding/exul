@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 iced-x86 = { version = "1.21.0", features = ["code_asm"] }
-ir = { path = "../ir" }
+intermediate = { path = "../intermediate" }

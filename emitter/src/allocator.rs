@@ -1,6 +1,6 @@
 use crate::convention::Convention;
 use crate::emitter::Emitter;
-use ir::{Function, InstructionKind, Value};
+use intermediate::{Function, InstructionKind, Value};
 use std::collections::HashMap;
 
 impl<C: Convention> Emitter<C> {

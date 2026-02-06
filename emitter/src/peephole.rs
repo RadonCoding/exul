@@ -1,4 +1,4 @@
-use ir::{Function, Instruction, InstructionKind, SymbolId, Value};
+use intermediate::{Function, Instruction, InstructionKind, SymbolId, Value};
 
 pub fn optimize(func: Function) -> Function {
     let optimizer = Peephole::new(func);

@@ -114,7 +114,7 @@ dependencies = [
  "clap",
  "emitter",
  "iced-x86",
- "ir",
+ "intermediate",
  "regex",
 ]
 
@@ -123,12 +123,8 @@ name = "emitter"
 version = "0.1.0"
 dependencies = [
  "iced-x86",
- "ir",
+ "intermediate",
 ]
-
-[[package]]
-name = "engine"
-version = "0.1.0"
 
 [[package]]
 name = "heck"
@@ -146,7 +142,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ir"
+name = "intermediate"
 version = "0.1.0"
 
 [[package]]

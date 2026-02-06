@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use ir::Module;
+use intermediate::Module;
 
 use crate::{convention::Convention, emitter::Emitter};
 

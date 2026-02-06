@@ -6,7 +6,7 @@ use iced_x86::{
         get_gpr64, rbp, rsp,
     },
 };
-use ir::{Function, InstructionKind, LabelId, Module, SymbolId, Value};
+use intermediate::{Function, InstructionKind, LabelId, Module, SymbolId, Value};
 use std::{collections::HashMap, error::Error};
 
 pub struct Emitter<C: Convention> {

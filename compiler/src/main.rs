@@ -1,5 +1,5 @@
 mod ast;
-mod ir;
+mod lower;
 mod lex;
 
 use clap::Parser;
@@ -79,7 +79,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input = fs::read(&args.input)?;
 
     let tokens = lex::tokenize(&input)?;
-    
+
     if args.tokens {
         println!("{:#?}", tokens);
     }
@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("{:#?}", tree);
     }
 
-    let module = ir::generate(tree)?;
+    let module = lower::generate(tree)?;
 
     if args.ir {
         println!("{:#?}", module);

@@ -2,8 +2,8 @@ mod decl;
 mod expr;
 mod stmt;
 
-use ir::symbols::Symbols;
-use ir::{Context, Module, SymbolId};
+use intermediate::symbols::Symbols;
+use intermediate::{Context, Module, SymbolId};
 use std::error::Error;
 
 use crate::ast::Tree;

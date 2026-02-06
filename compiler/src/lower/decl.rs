@@ -1,8 +1,8 @@
-use ir::{Context, Function, SymbolId, Value, symbols::Symbols};
+use intermediate::{Context, Function, SymbolId, Value, symbols::Symbols};
 
 use crate::{
     ast::decl::{Decl, DeclKind, FunctionDecl},
-    ir::Generate,
+    lower::Generate,
 };
 use std::error::Error;
 
