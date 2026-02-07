@@ -15,7 +15,7 @@ pub enum StmtKind<'a> {
     },
     Return(Expr<'a>),
     If {
-        condition: Expr<'a>,
+        cond: Expr<'a>,
         consequent: Vec<Stmt<'a>>,
         alternate: Option<Vec<Stmt<'a>>>,
     },
@@ -62,7 +62,7 @@ impl<'a> Parse<'a> for Stmt<'a> {
 
             return Ok(Stmt(Node {
                 kind: StmtKind::If {
-                    condition,
+                    cond: condition,
                     consequent: then_branch,
                     alternate: else_branch,
                 },

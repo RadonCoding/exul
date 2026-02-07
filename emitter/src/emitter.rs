@@ -1,10 +1,10 @@
-use crate::convention::Convention;
+use crate::{
+    convention::Convention,
+    registers::{self, LoadAction, Registers, ValueContext, ValueLocation},
+};
 use iced_x86::{
     Register,
-    code_asm::{
-        AsmRegister8, AsmRegister32, AsmRegister64, CodeAssembler, CodeLabel, get_gpr8, get_gpr32,
-        get_gpr64, rbp, rsp,
-    },
+    code_asm::{AsmRegister8, CodeAssembler, CodeLabel, get_gpr8, get_gpr64, qword_ptr, rbp, rsp},
 };
 use intermediate::{Function, Instruction, InstructionKind, LabelId, Module, SymbolId, Value};
 use std::{collections::HashMap, error::Error};
@@ -12,15 +12,18 @@ use std::{collections::HashMap, error::Error};
 pub struct Emitter<C: Convention> {
     pub(crate) asm: CodeAssembler,
     pub(crate) convention: C,
+    pub(crate) functions: HashMap<SymbolId, CodeLabel>,
 }
 
 pub(crate) struct FunctionContext {
     pub(crate) allocs: HashMap<SymbolId, Register>,
+    pub(crate) slots: HashMap<SymbolId, i32>,
     pub(crate) labels: HashMap<LabelId, CodeLabel>,
     pub(crate) pending: Vec<LabelId>,
     pub(crate) epilogue: CodeLabel,
     pub(crate) cursor: usize,
     pub(crate) instructions: Vec<Instruction>,
+    pub(crate) registers: Registers,
 }
 
 impl<C: Convention> Emitter<C> {
@@ -28,21 +31,12 @@ impl<C: Convention> Emitter<C> {
         Ok(Self {
             asm: CodeAssembler::new(64)?,
             convention,
+            functions: HashMap::new(),
         })
     }
 
-    pub(crate) fn reg(&self, ctx: &FunctionContext, id: SymbolId) -> AsmRegister64 {
-        get_gpr64(ctx.allocs[&id]).unwrap()
-    }
-
-    pub(crate) fn reg32(&self, ctx: &FunctionContext, id: SymbolId) -> AsmRegister32 {
-        let r = ctx.allocs[&id];
-        get_gpr32(r.full_register32()).unwrap()
-    }
-
-    pub(crate) fn reg8(&self, ctx: &FunctionContext, id: SymbolId) -> AsmRegister8 {
-        let r = ctx.allocs[&id];
-        let reg8 = match r {
+    pub(crate) fn to_reg8(&self, r: Register) -> AsmRegister8 {
+        let reg8 = match r.full_register() {
             Register::RAX => Register::AL,
             Register::RCX => Register::CL,
             Register::RDX => Register::DL,
@@ -64,22 +58,86 @@ impl<C: Convention> Emitter<C> {
         get_gpr8(reg8).unwrap()
     }
 
-    pub(crate) fn ret(&self) -> AsmRegister64 {
-        get_gpr64(self.convention.return_reg()).unwrap()
+    pub(super) fn ret(&self) -> Register {
+        self.convention.return_reg()
     }
 
-    pub(crate) fn ret32(&self) -> AsmRegister32 {
-        let r = self.convention.return_reg();
-        get_gpr32(r.full_register32()).unwrap()
+    pub(super) fn vol(&self) -> Register {
+        self.convention.volatile_regs()[0]
     }
 
-    pub(crate) fn vol(&self) -> AsmRegister64 {
-        get_gpr64(self.convention.volatile_regs()[0]).unwrap()
+    pub(super) fn value_context<'a>(&'a self, ctx: &'a FunctionContext) -> ValueContext<'a> {
+        ValueContext {
+            allocs: &ctx.allocs,
+            slots: &ctx.slots,
+            registers: &ctx.registers,
+        }
     }
 
-    pub(crate) fn vol32(&self) -> AsmRegister32 {
-        let r = self.convention.volatile_regs()[0];
-        get_gpr32(r.full_register32()).unwrap()
+    pub(super) fn load_to_register(
+        &mut self,
+        ctx: &mut FunctionContext,
+        val: Value,
+        target: Register,
+    ) -> Result<bool, Box<dyn Error>> {
+        let vctx = self.value_context(ctx);
+        let action = registers::plan_load(val, target, &vctx);
+
+        let target64 = get_gpr64(target).unwrap();
+        let did_load = !matches!(action, LoadAction::None);
+
+        registers::execute_load(&mut self.asm, action, target64)?;
+
+        if did_load {
+            ctx.registers.track(target, val);
+        }
+
+        Ok(did_load)
+    }
+
+    pub(super) fn ensure_in_register(
+        &mut self,
+        ctx: &mut FunctionContext,
+        val: Value,
+        hint: Register,
+    ) -> Result<Register, Box<dyn Error>> {
+        let vctx = self.value_context(ctx);
+        let location = vctx.locate(val);
+
+        match location {
+            ValueLocation::Register(r) => Ok(r),
+            _ => {
+                self.load_to_register(ctx, val, hint)?;
+                Ok(hint)
+            }
+        }
+    }
+
+    pub(super) fn store_symbol(
+        &mut self,
+        ctx: &mut FunctionContext,
+        dst: SymbolId,
+        src_reg: Register,
+    ) -> Result<(), Box<dyn Error>> {
+        ctx.registers.invalidate_symbol(dst);
+
+        if let Some(&offset) = ctx.slots.get(&dst) {
+            if ctx.registers.find_value(Value::Symbol(dst)) != Some(src_reg) {
+                let src64 = get_gpr64(src_reg).unwrap();
+                self.asm.mov(qword_ptr(rbp - offset), src64)?;
+            }
+        } else if let Some(&dst_reg) = ctx.allocs.get(&dst) {
+            if src_reg != dst_reg {
+                let dst64 = get_gpr64(dst_reg).unwrap();
+                let src64 = get_gpr64(src_reg).unwrap();
+                self.asm.mov(dst64, src64)?;
+            }
+            ctx.registers.track(dst_reg, Value::Symbol(dst));
+        } else {
+            unreachable!()
+        }
+
+        Ok(())
     }
 
     pub(crate) fn get_label(&mut self, ctx: &mut FunctionContext, id: LabelId) -> CodeLabel {
@@ -112,59 +170,60 @@ impl<C: Convention> Emitter<C> {
         Ok(())
     }
 
-    pub(crate) fn mov_val(
-        &mut self,
-        ctx: &FunctionContext,
-        dst: SymbolId,
-        val: Value,
-    ) -> Result<(), Box<dyn Error>> {
-        let d = self.reg(ctx, dst);
-        let d32 = self.reg32(ctx, dst);
-
-        match val {
-            Value::Symbol(s) => {
-                let r = self.reg(ctx, s);
-                if d != r {
-                    self.asm.mov(d, r)?;
-                }
-            }
-            Value::Constant(c) => {
-                if c == 0 {
-                    self.asm.xor(d32, d32)?;
-                } else if c >= 0 && c <= u32::MAX as i64 {
-                    self.asm.mov(d32, c as u32)?;
-                } else {
-                    self.asm.mov(d, c as u64)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     pub fn emit(&mut self, ip: u64, module: Module) -> Result<Vec<u8>, Box<dyn Error>> {
-        for func in module.functions {
-            self.emit_function(func)?;
+        for function in &module.functions {
+            self.functions.insert(function.id, self.asm.create_label());
+        }
+
+        for function in module.functions {
+            self.emit_function(function)?;
         }
         Ok(self.asm.assemble(ip)?)
     }
 
     fn emit_function(&mut self, function: Function) -> Result<(), Box<dyn Error>> {
+        self.asm
+            .set_label(self.functions.get_mut(&function.id).unwrap())?;
+
         self.asm.push(rbp)?;
         self.asm.mov(rbp, rsp)?;
 
-        let stack = (self.convention.shadow_space() + 15) & !15;
         let epilogue = self.asm.create_label();
 
         let mut ctx = FunctionContext {
             allocs: HashMap::new(),
+            slots: HashMap::new(),
             labels: HashMap::new(),
             pending: Vec::new(),
             epilogue,
             cursor: 0,
             instructions: function.instructions,
+            registers: Registers::new(),
         };
 
-        self.run_allocator(&mut ctx);
+        self.run_allocator(&mut ctx, function.params);
+
+        for i in 0..function.params {
+            let sym = SymbolId(i);
+            let d = ctx.allocs[&sym];
+            let d64 = get_gpr64(d).unwrap();
+
+            if let Some(s) = self.convention.argument_reg(i) {
+                if s != d {
+                    self.asm.mov(d64, get_gpr64(s).unwrap())?;
+                }
+            } else {
+                let offset = 16
+                    + self.convention.shadow_space()
+                    + ((i - self.convention.argument_regs().len()) * 8);
+                self.asm.mov(d64, qword_ptr(rbp + offset as i32))?;
+            }
+            ctx.registers.track(d, Value::Symbol(sym));
+        }
+
+        let shadow = self.convention.shadow_space() as i32;
+        let space = ctx.slots.values().copied().max().unwrap_or(shadow);
+        let stack = ((space + 15) & !15) as i32;
 
         if stack > 0 {
             self.asm.sub(rsp, stack as i32)?;
@@ -172,6 +231,7 @@ impl<C: Convention> Emitter<C> {
 
         for i in 0..ctx.instructions.len() {
             ctx.cursor = i;
+
             let instruction = ctx.instructions[i].clone();
 
             match instruction.kind {
@@ -204,14 +264,33 @@ impl<C: Convention> Emitter<C> {
         kind: InstructionKind,
     ) -> Result<(), Box<dyn Error>> {
         match kind {
-            InstructionKind::Add { .. } => self.compile_add(ctx, kind),
-            InstructionKind::Eq { .. } => self.compile_eq(ctx, kind),
-            InstructionKind::Assign { dst, src } => self.mov_val(ctx, dst, src),
+            InstructionKind::Add { dst, left, right } => self.compile_add(ctx, dst, left, right),
+            InstructionKind::Eq { dst, left, right } => self.compile_eq(ctx, dst, left, right),
+            InstructionKind::Assign { dst, src } => self.compile_assign(ctx, dst, src),
+            InstructionKind::Call { dst, callee, args } => {
+                self.compile_call(ctx, dst, callee, args)
+            }
             InstructionKind::Return(val) => self.compile_ret(ctx, val),
             InstructionKind::JumpIfFalse { .. }
             | InstructionKind::JumpIfNotEq { .. }
             | InstructionKind::Jump { .. } => self.compile_branch(ctx, kind),
             _ => unreachable!(),
         }
+    }
+
+    fn compile_assign(
+        &mut self,
+        ctx: &mut FunctionContext,
+        dst: SymbolId,
+        src: Value,
+    ) -> Result<(), Box<dyn Error>> {
+        let target_reg = if let Some(&r) = ctx.allocs.get(&dst) {
+            r
+        } else {
+            self.ret()
+        };
+        self.load_to_register(ctx, src, target_reg)?;
+        self.store_symbol(ctx, dst, target_reg)?;
+        Ok(())
     }
 }

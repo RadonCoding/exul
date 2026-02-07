@@ -1,57 +1,71 @@
-use crate::emitter::Emitter;
-use crate::{convention::Convention, emitter::FunctionContext};
-use intermediate::{InstructionKind, Value};
 use std::collections::HashMap;
 
-impl<C: Convention> Emitter<C> {
-    pub(crate) fn run_allocator(&mut self, ctx: &mut FunctionContext) {
-        let mut deaths = HashMap::new();
-        let volatiles = self.convention.volatile_regs();
-        let mut next = 0;
+use crate::emitter::Emitter;
+use crate::{convention::Convention, emitter::FunctionContext};
+use intermediate::{InstructionKind, SymbolId};
 
-        for (i, instr) in ctx.instructions.iter().enumerate() {
-            match &instr.kind {
-                InstructionKind::Add { left, right, .. }
-                | InstructionKind::Eq { left, right, .. } => {
-                    if let Value::Symbol(s) = left {
-                        deaths.insert(*s, i);
-                    }
-                    if let Value::Symbol(s) = right {
-                        deaths.insert(*s, i);
-                    }
-                }
-                InstructionKind::Assign { src, .. }
-                | InstructionKind::JumpIfFalse { cond: src, .. } => {
-                    if let Value::Symbol(s) = src {
-                        deaths.insert(*s, i);
-                    }
-                }
-                InstructionKind::Return(Value::Symbol(s)) => {
-                    deaths.insert(*s, i);
-                }
-                _ => {}
+impl<C: Convention> Emitter<C> {
+    pub(crate) fn run_allocator(&mut self, ctx: &mut FunctionContext, params: usize) {
+        let mut last_use = HashMap::new();
+
+        let volatiles = self.convention.volatile_regs();
+
+        for (i, instruction) in ctx.instructions.iter().enumerate() {
+            for s in instruction.kind.read_symbols() {
+                last_use.insert(s, i);
+            }
+        }
+
+        let mut next_slot = self.convention.shadow_space() as i32;
+        let mut next_reg = 0;
+
+        for i in 0..params {
+            let sym = SymbolId(i);
+            let death = *last_use.get(&sym).unwrap_or(&0);
+
+            let survivor = ctx.instructions[0..=death]
+                .iter()
+                .any(|inst| matches!(inst.kind, InstructionKind::Call { .. }));
+
+            if survivor {
+                ctx.slots.insert(sym, next_slot);
+                next_slot += 8;
+            } else {
+                let reg = self
+                    .convention
+                    .argument_reg(i)
+                    .unwrap_or_else(|| volatiles[next_reg % volatiles.len()]);
+                ctx.allocs.insert(sym, reg);
+                next_reg += 1;
             }
         }
 
         for (i, instruction) in ctx.instructions.iter().enumerate() {
-            let (dst, left) = match &instruction.kind {
-                InstructionKind::Add { dst, left, .. } | InstructionKind::Eq { dst, left, .. } => {
-                    (Some(*dst), Some(left))
-                }
-                InstructionKind::Assign { dst, src } => (Some(*dst), Some(src)),
-                _ => (None, None),
-            };
-
-            if let Some(d) = dst {
-                if let Some(Value::Symbol(s)) = left {
-                    if deaths.get(&s) == Some(&i) {
-                        let r = ctx.allocs[&s];
-                        ctx.allocs.insert(d, r);
+            for d in instruction.kind.written_symbols() {
+                if let InstructionKind::Call { dst, .. } = &instruction.kind {
+                    if *dst == d {
+                        ctx.allocs.insert(d, self.ret());
                         continue;
                     }
                 }
-                ctx.allocs.insert(d, volatiles[next % volatiles.len()]);
-                next += 1;
+
+                if ctx.allocs.contains_key(&d) || ctx.slots.contains_key(&d) {
+                    continue;
+                }
+
+                let death = *last_use.get(&d).unwrap_or(&i);
+
+                let survivor = ctx.instructions[i..=death]
+                    .iter()
+                    .any(|inst| matches!(inst.kind, InstructionKind::Call { .. }));
+
+                if survivor {
+                    ctx.slots.insert(d, next_slot);
+                    next_slot += 8;
+                } else {
+                    ctx.allocs.insert(d, volatiles[next_reg % volatiles.len()]);
+                    next_reg += 1;
+                }
             }
         }
     }

@@ -37,6 +37,11 @@ pub enum InstructionKind {
         dst: SymbolId,
         src: Value,
     },
+    Call {
+        dst: SymbolId,
+        callee: SymbolId,
+        args: Vec<Value>,
+    },
     Return(Value),
     Label(LabelId),
     JumpIfFalse {
@@ -64,6 +69,11 @@ impl InstructionKind {
                 symbols.extend(left.symbols());
                 symbols.extend(right.symbols());
             }
+            InstructionKind::Call { args, .. } => {
+                for arg in args {
+                    symbols.extend(arg.symbols());
+                }
+            }
             InstructionKind::Return(val) | InstructionKind::JumpIfFalse { cond: val, .. } => {
                 symbols.extend(val.symbols());
             }
@@ -76,7 +86,8 @@ impl InstructionKind {
         match self {
             InstructionKind::Assign { dst, .. }
             | InstructionKind::Add { dst, .. }
-            | InstructionKind::Eq { dst, .. } => vec![*dst],
+            | InstructionKind::Eq { dst, .. }
+            | InstructionKind::Call { dst, .. } => vec![*dst],
             _ => vec![],
         }
     }
@@ -92,6 +103,7 @@ pub struct Instruction {
 pub struct Function {
     pub id: SymbolId,
     pub instructions: Vec<Instruction>,
+    pub params: usize,
     pub capacity: usize,
 }
 

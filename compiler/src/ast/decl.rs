@@ -8,6 +8,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDecl<'a> {
     pub name: &'a [u8],
+    pub params: Vec<&'a [u8]>,
     pub body: Vec<Stmt<'a>>,
 }
 
@@ -39,16 +40,31 @@ impl<'a> Parse<'a> for FunctionDecl<'a> {
         let name = parser.consume(TokenKind::Identifier, "identifier")?.value;
 
         parser.consume(TokenKind::LParen, "'('")?;
+
+        let mut params = Vec::new();
+
+        if !parser.check(TokenKind::RParen) {
+            loop {
+                let param = parser.consume(TokenKind::Identifier, "parameter")?.value;
+                params.push(param);
+
+                if !parser.match_token(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+
         parser.consume(TokenKind::RParen, "')'")?;
         parser.consume(TokenKind::LBrace, "'{'")?;
 
         let mut body = Vec::new();
+
         while !parser.check(TokenKind::RBrace) && !parser.is_eof() {
             body.push(Stmt::parse(parser)?);
         }
 
         parser.consume(TokenKind::RBrace, "'}'")?;
 
-        Ok(FunctionDecl { name, body })
+        Ok(FunctionDecl { name, params, body })
     }
 }

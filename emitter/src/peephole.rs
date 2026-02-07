@@ -47,8 +47,8 @@ impl Peephole {
             return None;
         }
 
-        let inst1 = &self.function.instructions[i];
-        let inst2 = &self.function.instructions[i + 1];
+        let current = &self.function.instructions[i];
+        let next = &self.function.instructions[i + 1];
 
         if let (
             InstructionKind::Eq { dst, left, right },
@@ -56,7 +56,7 @@ impl Peephole {
                 cond: Value::Symbol(s),
                 dst: label,
             },
-        ) = (&inst1.kind, &inst2.kind)
+        ) = (&current.kind, &next.kind)
         {
             if dst == s && !self.symbol_read_after(*dst, i + 2) {
                 result.push(Instruction {
@@ -65,7 +65,7 @@ impl Peephole {
                         right: *right,
                         dst: *label,
                     },
-                    offset: inst1.offset,
+                    offset: current.offset,
                 });
                 return Some(2);
             }
@@ -79,15 +79,15 @@ impl Peephole {
             return None;
         }
 
-        let prev = &self.function.instructions[i - 1];
-        let curr = &self.function.instructions[i];
+        let previous = &self.function.instructions[i - 1];
+        let current = &self.function.instructions[i];
 
         let is_terminator = matches!(
-            prev.kind,
+            previous.kind,
             InstructionKind::Return(_) | InstructionKind::Jump(_)
         );
 
-        if is_terminator && !matches!(curr.kind, InstructionKind::Label(_)) {
+        if is_terminator && !matches!(current.kind, InstructionKind::Label(_)) {
             return Some(1);
         }
 

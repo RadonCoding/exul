@@ -1,11 +1,11 @@
-use std::error::Error;
-
-use intermediate::{InstructionKind, Value};
-
 use crate::{
     convention::Convention,
     emitter::{Emitter, FunctionContext},
+    registers::ValueLocation,
 };
+use iced_x86::code_asm::{get_gpr64, qword_ptr, rbp, rsp};
+use intermediate::{InstructionKind, SymbolId, Value};
+use std::error::Error;
 
 impl<C: Convention> Emitter<C> {
     pub(crate) fn compile_branch(
@@ -15,50 +15,30 @@ impl<C: Convention> Emitter<C> {
     ) -> Result<(), Box<dyn Error>> {
         match kind {
             InstructionKind::JumpIfFalse { cond, dst } => {
-                let l = self.get_label(ctx, dst);
+                let cond_reg = self.ensure_in_register(ctx, cond, self.vol())?;
+                let cond64 = get_gpr64(cond_reg).unwrap();
 
-                match cond {
-                    Value::Symbol(s) => {
-                        let r = self.reg(ctx, s);
-                        self.asm.test(r, r)?;
-                    }
-                    Value::Constant(c) => {
-                        let tmp = self.vol();
-                        self.asm.mov(tmp, c as u64)?;
-                        self.asm.test(tmp, tmp)?;
-                    }
-                }
+                self.asm.test(cond64, cond64)?;
+                let l = self.get_label(ctx, dst);
                 self.asm.jz(l)?;
             }
             InstructionKind::JumpIfNotEq { left, right, dst } => {
-                let tmp = self.vol();
-                let tmp32 = self.vol32();
+                let left_reg = self.ensure_in_register(ctx, left, self.vol())?;
+                let left64 = get_gpr64(left_reg).unwrap();
 
-                match left {
-                    Value::Symbol(s) => {
-                        let r = self.reg(ctx, s);
-                        if tmp != r {
-                            self.asm.mov(tmp, r)?;
-                        }
-                    }
-                    Value::Constant(c) => {
-                        if c == 0 {
-                            self.asm.xor(tmp32, tmp32)?;
-                        } else if c >= 0 && c <= u32::MAX as i64 {
-                            self.asm.mov(tmp32, c as u32)?;
-                        } else {
-                            self.asm.mov(tmp, c as u64)?;
-                        }
-                    }
-                }
+                let vctx = self.value_context(ctx);
+                let right_loc = vctx.locate(right);
 
-                match right {
-                    Value::Symbol(s) => {
-                        let r = self.reg(ctx, s);
-                        self.asm.cmp(tmp, r)?;
+                match right_loc {
+                    ValueLocation::Register(r) => {
+                        let r64 = get_gpr64(r).unwrap();
+                        self.asm.cmp(left64, r64)?;
                     }
-                    Value::Constant(c) => {
-                        self.asm.cmp(tmp, c as i32)?;
+                    ValueLocation::Stack(offset) => {
+                        self.asm.cmp(left64, qword_ptr(rbp - offset))?;
+                    }
+                    ValueLocation::Immediate(imm) => {
+                        self.asm.cmp(left64, imm as i32)?;
                     }
                 }
 
@@ -71,6 +51,41 @@ impl<C: Convention> Emitter<C> {
             }
             _ => unreachable!(),
         }
+        Ok(())
+    }
+
+    pub(crate) fn compile_call(
+        &mut self,
+        ctx: &mut FunctionContext,
+        dst: SymbolId,
+        callee: SymbolId,
+        args: Vec<Value>,
+    ) -> Result<(), Box<dyn Error>> {
+        ctx.registers.invalidate_symbol(dst);
+
+        let mut stacked = 0;
+
+        for (i, &arg) in args.iter().enumerate() {
+            if let Some(reg) = self.convention.argument_reg(i) {
+                self.load_to_register(ctx, arg, reg)?;
+            } else {
+                let temp_reg = self.vol();
+                self.load_to_register(ctx, arg, temp_reg)?;
+                let temp64 = get_gpr64(temp_reg).unwrap();
+                self.asm.push(temp64)?;
+                stacked += 1;
+            }
+        }
+
+        self.asm.call(self.functions[&callee])?;
+
+        if stacked > 0 {
+            self.asm.add(rsp, (stacked * 8) as i32)?;
+        }
+
+        ctx.registers.invalidate_volatile(&self.convention);
+
+        self.store_symbol(ctx, dst, self.ret())?;
 
         Ok(())
     }
@@ -80,24 +95,7 @@ impl<C: Convention> Emitter<C> {
         ctx: &mut FunctionContext,
         val: Value,
     ) -> Result<(), Box<dyn Error>> {
-        let d = self.ret();
-        let d32 = self.ret32();
-
-        match val {
-            Value::Symbol(s) => {
-                let s = self.reg(ctx, s);
-                self.asm.mov(d, s)?;
-            }
-            Value::Constant(c) => {
-                if c == 0 {
-                    self.asm.xor(d32, d32)?;
-                } else if c >= 0 && c <= u32::MAX as i64 {
-                    self.asm.mov(d32, c as u32)?;
-                } else {
-                    self.asm.mov(d, c as u64)?;
-                }
-            }
-        }
+        self.load_to_register(ctx, val, self.ret())?;
 
         if ctx.cursor < ctx.instructions.len() - 1 {
             self.asm.jmp(ctx.epilogue)?;

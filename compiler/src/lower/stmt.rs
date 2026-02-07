@@ -25,9 +25,9 @@ impl Generate for Stmt<'_> {
                 let dst = if let Some(Value::Symbol(existing)) = scope.resolve(&name) {
                     existing
                 } else {
-                    let new_id = ctx.next_symbol();
-                    scope.define(name, Value::Symbol(new_id));
-                    new_id
+                    let sym = ctx.next_symbol();
+                    scope.define(name, Value::Symbol(sym));
+                    sym
                 };
 
                 ctx.emit(InstructionKind::Assign { dst, src }, offset);
@@ -37,22 +37,16 @@ impl Generate for Stmt<'_> {
                 ctx.emit(InstructionKind::Return(val), offset);
             }
             StmtKind::If {
-                condition,
+                cond,
                 consequent,
                 alternate,
             } => {
-                let condition = condition.generate(ctx, scope, id)?;
+                let cond = cond.generate(ctx, scope, id)?;
 
                 let l1 = ctx.next_label();
                 let l2 = ctx.next_label();
 
-                ctx.emit(
-                    InstructionKind::JumpIfFalse {
-                        cond: condition,
-                        dst: l1,
-                    },
-                    offset,
-                );
+                ctx.emit(InstructionKind::JumpIfFalse { cond, dst: l1 }, offset);
 
                 for stmt in consequent {
                     stmt.generate(ctx, scope, id)?;

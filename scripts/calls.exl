@@ -1,0 +1,9 @@
+fn dummy(a) {
+    return a
+}
+
+fn main() {
+    a = 1
+    b = dummy(a)
+    return a + b
+}

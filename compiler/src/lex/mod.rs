@@ -16,6 +16,7 @@ pub enum TokenKind {
     RParen,
     LBrace,
     RBrace,
+    Comma,
 }
 
 #[derive(Debug)]
@@ -140,6 +141,10 @@ static RULES: &[Rule] = &[
     Rule {
         matcher: Matcher::Fixed(b"}"),
         kind: TokenKind::RBrace,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b","),
+        kind: TokenKind::Comma,
     },
 ];
 

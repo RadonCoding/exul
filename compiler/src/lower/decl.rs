@@ -46,6 +46,12 @@ impl Generate for FunctionDecl<'_> {
 
         let mut scope = Symbols::new(Some(parent));
 
+        for param in &self.params {
+            let name = String::from_utf8_lossy(param).to_string();
+            let sym = ctx.next_symbol();
+            scope.define(name, Value::Symbol(sym));
+        }
+
         for stmt in self.body {
             stmt.generate(ctx, &mut scope, id)?;
         }
@@ -53,6 +59,7 @@ impl Generate for FunctionDecl<'_> {
         Ok(Function {
             id,
             instructions: ctx.instructions.clone(),
+            params: self.params.len(),
             capacity: ctx.symbols,
         })
     }

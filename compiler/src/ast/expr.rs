@@ -12,8 +12,12 @@ pub enum ExprKind<'a> {
         op: Op,
         right: Box<Expr<'a>>,
     },
-    Variable(&'a [u8]),
+    Identifier(&'a [u8]),
     Literal(&'a [u8]),
+    Call {
+        callee: &'a [u8],
+        args: Vec<Expr<'a>>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,8 +51,28 @@ impl<'a> Expr<'a> {
         }
 
         if parser.match_token(TokenKind::Identifier) {
+            let id = parser.previous().value;
+
+            if parser.match_token(TokenKind::LParen) {
+                let mut args = Vec::new();
+                if !parser.check(TokenKind::RParen) {
+                    loop {
+                        args.push(Expr::parse(parser)?);
+                        if !parser.match_token(TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                }
+                parser.consume(TokenKind::RParen, "')'")?;
+
+                return Ok(Expr(Node {
+                    kind: ExprKind::Call { callee: id, args },
+                    offset,
+                }));
+            }
+
             return Ok(Expr(Node {
-                kind: ExprKind::Variable(parser.previous().value),
+                kind: ExprKind::Identifier(id),
                 offset,
             }));
         }

@@ -10,6 +10,7 @@ mod branches;
 pub mod convention;
 mod emitter;
 mod peephole;
+mod registers;
 
 pub fn emit<C: Convention>(ip: u64, module: Module) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut emitter = Emitter::new(C::default())?;
