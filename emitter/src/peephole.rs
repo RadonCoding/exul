@@ -19,6 +19,7 @@ impl<'a> Peephole<'a> {
         self.function.instructions = optimized;
     }
 
+    /// Iterates through the instruction stream to collapse redundant logic and eliminate dead code.
     fn optimize_instructions(&self) -> Vec<Instruction> {
         let mut result = Vec::new();
         let mut i = 0;
@@ -42,6 +43,7 @@ impl<'a> Peephole<'a> {
         result
     }
 
+    /// Fuses a subroutine call directly into a destination symbol, bypassing an intermediate [`InstructionKind::Assign`].
     fn try_call_assign(&self, result: &mut Vec<Instruction>, i: usize) -> Option<usize> {
         if i + 1 >= self.function.instructions.len() {
             return None;
@@ -79,6 +81,7 @@ impl<'a> Peephole<'a> {
         None
     }
 
+    /// Merges an [`InstructionKind::Eq`] comparison with its dependent [`InstructionKind::JumpIfFalse`] into a single branch.
     fn try_compare_branch(&self, result: &mut Vec<Instruction>, i: usize) -> Option<usize> {
         if i + 1 >= self.function.instructions.len() {
             return None;
@@ -95,6 +98,7 @@ impl<'a> Peephole<'a> {
             },
         ) = (&current.kind, &next.kind)
         {
+            // Fuse if the branch condition is the result of the equality check.
             if dst == s && !self.symbol_read_after(*dst, i + 2) {
                 result.push(Instruction {
                     kind: InstructionKind::JumpIfNotEq {
@@ -110,6 +114,7 @@ impl<'a> Peephole<'a> {
         None
     }
 
+    /// Discards code that follows an unconditional terminator like [`InstructionKind::Return`] or [`InstructionKind::Jump`].
     fn try_remove_unreachable(&self, _result: &mut Vec<Instruction>, i: usize) -> Option<usize> {
         if i == 0 || i >= self.function.instructions.len() {
             return None;
@@ -123,6 +128,7 @@ impl<'a> Peephole<'a> {
             InstructionKind::Return(_) | InstructionKind::Jump(_)
         );
 
+        // If the block has terminated, subsequent instructions are dead until a new entry point is defined.
         if is_terminator && !matches!(current.kind, InstructionKind::Label(_)) {
             return Some(1);
         }
@@ -130,6 +136,7 @@ impl<'a> Peephole<'a> {
         None
     }
 
+    /// Scans subsequent instructions to determine if a [`SymbolId`] is read before being overwritten.
     fn symbol_read_after(&self, symbol: SymbolId, start: usize) -> bool {
         self.function.instructions[start..]
             .iter()

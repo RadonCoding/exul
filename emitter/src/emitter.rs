@@ -74,6 +74,7 @@ impl<C: Convention> Emitter<C> {
         }
     }
 
+    /// Moves a value into the target register and updates the tracking state.
     pub(super) fn load_to_register(
         &mut self,
         ctx: &mut FunctionContext,
@@ -113,6 +114,7 @@ impl<C: Convention> Emitter<C> {
         }
     }
 
+    /// Commits a register value to its assigned symbol location (register or stack slot).
     pub(super) fn store_symbol(
         &mut self,
         ctx: &mut FunctionContext,
@@ -122,12 +124,14 @@ impl<C: Convention> Emitter<C> {
         ctx.registers.invalidate_symbol(dst);
 
         if let Some(&offset) = ctx.slots.get(&dst) {
+            // Memory store: commit register to stack slot.
             if ctx.registers.find_value(Value::Symbol(dst)) != Some(src_reg) {
                 let src64 = get_gpr64(src_reg).unwrap();
                 self.asm.mov(qword_ptr(rbp - offset), src64)?;
             }
             ctx.registers.track(src_reg, Value::Symbol(dst));
         } else if let Some(&dst_reg) = ctx.allocs.get(&dst) {
+            // Register-to-register move: only emit if target differs.
             if src_reg != dst_reg {
                 let dst64 = get_gpr64(dst_reg).unwrap();
                 let src64 = get_gpr64(src_reg).unwrap();
@@ -147,6 +151,7 @@ impl<C: Convention> Emitter<C> {
             .or_insert_with(|| self.asm.create_label())
     }
 
+    /// Consolidates multiple virtual labels into a single physical code offset.
     fn bind_pending(&mut self, ctx: &mut FunctionContext) -> Result<(), Box<dyn Error>> {
         if ctx.pending.is_empty() {
             return Ok(());
@@ -204,6 +209,7 @@ impl<C: Convention> Emitter<C> {
 
         self.run_allocator(&mut ctx, function.params);
 
+        // Load parameters into their allocated registers or from the stack (caller's frame).
         for i in 0..function.params {
             let sym = SymbolId(i);
             let d = ctx.allocs[&sym];
@@ -214,6 +220,7 @@ impl<C: Convention> Emitter<C> {
                     self.asm.mov(d64, get_gpr64(s).unwrap())?;
                 }
             } else {
+                // Stack parameter access: Skip return address (8) + saved RBP (8).
                 let offset = 16
                     + self.convention.shadow_space()
                     + ((i - self.convention.argument_regs().len()) * 8);
@@ -222,6 +229,7 @@ impl<C: Convention> Emitter<C> {
             ctx.registers.track(d, Value::Symbol(sym));
         }
 
+        // Calculate stack allocation: Align to 16 bytes for ABI compliance.
         let shadow = self.convention.shadow_space() as i32;
         let space = ctx
             .slots
@@ -242,6 +250,7 @@ impl<C: Convention> Emitter<C> {
             let instruction = ctx.instructions[i].clone();
 
             match instruction.kind {
+                // Defer label binding until an actual instruction is encountered.
                 InstructionKind::Label(id) => ctx.pending.push(id),
                 _ => {
                     self.bind_pending(&mut ctx)?;

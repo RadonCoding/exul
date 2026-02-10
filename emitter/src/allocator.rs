@@ -10,6 +10,7 @@ impl<C: Convention> Emitter<C> {
 
         let volatiles = self.convention.volatile_regs();
 
+        // Perform liveness analysis to determine the last instruction index where each symbol is used.
         for (i, instruction) in ctx.instructions.iter().enumerate() {
             for s in instruction.kind.read_symbols() {
                 last_use.insert(s, i);
@@ -23,6 +24,7 @@ impl<C: Convention> Emitter<C> {
             let sym = SymbolId(i);
             let death = *last_use.get(&sym).unwrap_or(&0);
 
+            // Spill to stack if the symbol range crosses a function call.
             let survivor = ctx.instructions[0..=death]
                 .iter()
                 .any(|inst| matches!(inst.kind, InstructionKind::Call { .. }));
@@ -31,6 +33,7 @@ impl<C: Convention> Emitter<C> {
                 ctx.slots.insert(sym, next_slot);
                 next_slot += 8;
             } else {
+                // Use standard calling convention registers or rotate through volatiles.
                 let reg = self
                     .convention
                     .argument_reg(i)
@@ -42,6 +45,7 @@ impl<C: Convention> Emitter<C> {
 
         for (i, instruction) in ctx.instructions.iter().enumerate() {
             for d in instruction.kind.written_symbols() {
+                // Force call results into the convention return register.
                 if let InstructionKind::Call { dst, .. } = &instruction.kind {
                     if *dst == d {
                         ctx.allocs.insert(d, self.ret());
@@ -55,6 +59,7 @@ impl<C: Convention> Emitter<C> {
 
                 let death = *last_use.get(&d).unwrap_or(&i);
 
+                // Check if symbol needs to survive a CALL clobbering caller-saved regs.
                 let survivor = ctx.instructions[i..=death]
                     .iter()
                     .any(|inst| matches!(inst.kind, InstructionKind::Call { .. }));
@@ -63,6 +68,7 @@ impl<C: Convention> Emitter<C> {
                     ctx.slots.insert(d, next_slot);
                     next_slot += 8;
                 } else {
+                    // Simple round-robin allocation for short-lived registers.
                     ctx.allocs.insert(d, volatiles[next_reg % volatiles.len()]);
                     next_reg += 1;
                 }

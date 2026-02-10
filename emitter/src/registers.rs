@@ -7,6 +7,7 @@ use intermediate::{SymbolId, Value};
 use std::{collections::HashMap, error::Error};
 
 pub struct Registers {
+    /// Tracks which value/symbol currently resides in which register.
     tracked: HashMap<Register, Value>,
 }
 
@@ -28,6 +29,7 @@ impl Registers {
         self.tracked.insert(reg, val);
     }
 
+    /// Removes a symbol from tracking, typically when it is overwritten or dies.
     pub fn invalidate_symbol(&mut self, symbol: SymbolId) {
         self.tracked.retain(|_, v| {
             if let Value::Symbol(s) = v {
@@ -38,6 +40,7 @@ impl Registers {
         });
     }
 
+    /// Drops all caller-saved registers from the tracking to reflect callee clobbering.
     pub fn invalidate_volatile<C: Convention>(&mut self, convention: &C) {
         let volatiles = convention.volatile_regs();
         self.tracked.retain(|reg, _| !volatiles.contains(reg));
@@ -58,18 +61,22 @@ pub struct ValueContext<'a> {
 }
 
 impl<'a> ValueContext<'a> {
+    /// Resolves the current location of a value, prioritizing active registers over spill slots.
     pub fn locate(&self, val: Value) -> ValueLocation {
         match val {
             Value::Constant(c) => ValueLocation::Immediate(c),
             Value::Symbol(s) => {
+                // Check if the value is already cached in a register from a previous load.
                 if let Some(reg) = self.registers.find_value(val) {
                     return ValueLocation::Register(reg);
                 }
 
+                // Check static allocation assignments.
                 if let Some(&reg) = self.allocs.get(&s) {
                     return ValueLocation::Register(reg);
                 }
 
+                // Fall back to the stack spill slot.
                 if let Some(&offset) = self.slots.get(&s) {
                     return ValueLocation::Stack(offset);
                 }
@@ -88,6 +95,7 @@ pub enum LoadAction {
     LoadImmediate(i64),
 }
 
+/// Determines the necessary operation to get a value into a specific target register.
 pub fn plan_load(val: Value, target: Register, ctx: &ValueContext) -> LoadAction {
     let location = ctx.locate(val);
 
@@ -116,10 +124,12 @@ pub fn execute_load(
         }
         LoadAction::LoadImmediate(imm) => {
             if imm == 0 {
+                // Optimization: 'xor reg, reg' is smaller.
                 let reg = Into::<Register>::into(target);
                 let r32 = get_gpr32(reg.full_register32()).unwrap();
                 asm.xor(r32, r32)?;
             } else if imm >= 0 && imm <= u32::MAX as i64 {
+                // Optimization: 32-bit MOV zero-extends to 64-bit, saving instruction bytes.
                 let reg = Into::<Register>::into(target);
                 let r32 = get_gpr32(reg.full_register32()).unwrap();
                 asm.mov(r32, imm as u32)?;
