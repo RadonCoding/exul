@@ -59,7 +59,7 @@ impl<C: Convention> Emitter<C> {
 
                 let death = *last_use.get(&d).unwrap_or(&i);
 
-                // Check if symbol needs to survive a call clobbering caller-saved regs.
+                // Check if symbol needs to survive a CALL clobbering caller-saved regs.
                 let survivor = ctx.instructions[i..=death]
                     .iter()
                     .any(|inst| matches!(inst.kind, InstructionKind::Call { .. }));

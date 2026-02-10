@@ -28,7 +28,8 @@ impl<'a> Peephole<'a> {
             let consumed = self
                 .try_call_assign(&mut result, i)
                 .or_else(|| self.try_compare_branch(&mut result, i))
-                .or_else(|| self.try_remove_unreachable(&mut result, i));
+                .or_else(|| self.try_remove_unreachable(&mut result, i))
+                .or_else(|| self.try_remove_dead_store(&mut result, i));
 
             match consumed {
                 Some(skip) => {
@@ -41,6 +42,33 @@ impl<'a> Peephole<'a> {
             }
         }
         result
+    }
+
+    /// Removes instructions that define a symbol that is overwritten before it is ever read.
+    fn try_remove_dead_store(&self, _result: &mut Vec<Instruction>, i: usize) -> Option<usize> {
+        let current = &self.function.instructions[i];
+
+        let written = current.kind.written_symbols();
+
+        if written.len() != 1 {
+            return None;
+        }
+
+        let target = written[0];
+
+        for inst in self.function.instructions.iter().skip(i + 1) {
+            if inst.kind.read_symbols().contains(&target) {
+                return None;
+            }
+            if inst.kind.written_symbols().contains(&target) {
+                return Some(1);
+            }
+            if matches!(inst.kind, InstructionKind::Label(_)) {
+                return None;
+            }
+        }
+
+        Some(1)
     }
 
     /// Fuses a subroutine call directly into a destination symbol, bypassing an intermediate [`InstructionKind::Assign`].
