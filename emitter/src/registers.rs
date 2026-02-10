@@ -42,10 +42,6 @@ impl Registers {
         let volatiles = convention.volatile_regs();
         self.tracked.retain(|reg, _| !volatiles.contains(reg));
     }
-
-    pub fn clear(&mut self) {
-        self.tracked.clear();
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

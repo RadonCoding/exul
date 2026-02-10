@@ -126,6 +126,7 @@ impl<C: Convention> Emitter<C> {
                 let src64 = get_gpr64(src_reg).unwrap();
                 self.asm.mov(qword_ptr(rbp - offset), src64)?;
             }
+            ctx.registers.track(src_reg, Value::Symbol(dst));
         } else if let Some(&dst_reg) = ctx.allocs.get(&dst) {
             if src_reg != dst_reg {
                 let dst64 = get_gpr64(dst_reg).unwrap();
