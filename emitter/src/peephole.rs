@@ -1,22 +1,22 @@
 use intermediate::{Function, Instruction, InstructionKind, SymbolId, Value};
 
-pub fn optimize(func: Function) -> Function {
-    let optimizer = Peephole::new(func);
+pub fn optimize(function: &mut Function) {
+    let mut optimizer = Peephole::new(function);
     optimizer.run()
 }
 
-struct Peephole {
-    function: Function,
+struct Peephole<'a> {
+    function: &'a mut Function,
 }
 
-impl Peephole {
-    fn new(function: Function) -> Self {
+impl<'a> Peephole<'a> {
+    fn new(function: &'a mut Function) -> Self {
         Self { function }
     }
 
-    fn run(mut self) -> Function {
-        self.function.instructions = self.optimize_instructions();
-        self.function
+    fn run(&mut self) {
+        let optimized = self.optimize_instructions();
+        self.function.instructions = optimized;
     }
 
     fn optimize_instructions(&self) -> Vec<Instruction> {
@@ -39,7 +39,6 @@ impl Peephole {
                 }
             }
         }
-
         result
     }
 
@@ -77,7 +76,6 @@ impl Peephole {
                 }
             }
         }
-
         None
     }
 
@@ -109,7 +107,6 @@ impl Peephole {
                 return Some(2);
             }
         }
-
         None
     }
 

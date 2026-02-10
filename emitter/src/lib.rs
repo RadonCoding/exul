@@ -12,19 +12,12 @@ mod emitter;
 mod peephole;
 mod registers;
 
-pub fn emit<C: Convention>(ip: u64, module: Module) -> Result<Vec<u8>, Box<dyn Error>> {
+pub fn emit<C: Convention>(ip: u64, module: &mut Module) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut emitter = Emitter::new(C::default())?;
 
-    let optimized = Module {
-        functions: module
-            .functions
-            .into_iter()
-            .map(peephole::optimize)
-            .collect(),
-        entry: module.entry,
-    };
+    for func in &mut module.functions {
+        peephole::optimize(func);
+    }
 
-    println!("{:#?}", optimized);
-
-    emitter.emit(ip, optimized)
+    emitter.emit(ip, module)
 }

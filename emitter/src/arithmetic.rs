@@ -23,11 +23,11 @@ impl<C: Convention> Emitter<C> {
         let dst64 = get_gpr64(dst_reg).unwrap();
 
         match (left_loc, right_loc) {
-            (ValueLocation::Register(l), ValueLocation::Stack(off)) if l == dst_reg => {
-                self.asm.add(dst64, qword_ptr(rbp - off))?;
+            (ValueLocation::Register(l), ValueLocation::Stack(offset)) if l == dst_reg => {
+                self.asm.add(dst64, qword_ptr(rbp - offset))?;
             }
-            (ValueLocation::Stack(off), ValueLocation::Register(r)) if r == dst_reg => {
-                self.asm.add(dst64, qword_ptr(rbp - off))?;
+            (ValueLocation::Stack(offset), ValueLocation::Register(r)) if r == dst_reg => {
+                self.asm.add(dst64, qword_ptr(rbp - offset))?;
             }
             _ => {
                 self.load_to_register(ctx, left, dst_reg)?;
@@ -36,8 +36,8 @@ impl<C: Convention> Emitter<C> {
                     ValueLocation::Register(r) => {
                         self.asm.add(dst64, get_gpr64(r).unwrap())?;
                     }
-                    ValueLocation::Stack(off) => {
-                        self.asm.add(dst64, qword_ptr(rbp - off))?;
+                    ValueLocation::Stack(offset) => {
+                        self.asm.add(dst64, qword_ptr(rbp - offset))?;
                     }
                     ValueLocation::Immediate(imm) => {
                         self.asm.add(dst64, imm as i32)?;

@@ -82,8 +82,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let tokens = lex::tokenize(&input)?;
     let tree = ast::parse(tokens)?;
-    let module = lower::generate(tree)?;
-    let bytes = emitter::emit::<MicrosoftX64>(args.ip, module)?;
+    let mut module = lower::generate(tree)?;
+    let bytes = emitter::emit::<MicrosoftX64>(args.ip, &mut module)?;
 
     let duration = start.elapsed();
 

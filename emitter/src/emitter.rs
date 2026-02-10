@@ -15,14 +15,14 @@ pub struct Emitter<C: Convention> {
     pub(crate) functions: HashMap<SymbolId, CodeLabel>,
 }
 
-pub(crate) struct FunctionContext {
+pub(crate) struct FunctionContext<'a> {
     pub(crate) allocs: HashMap<SymbolId, Register>,
     pub(crate) slots: HashMap<SymbolId, i32>,
     pub(crate) labels: HashMap<LabelId, CodeLabel>,
     pub(crate) pending: Vec<LabelId>,
     pub(crate) epilogue: CodeLabel,
     pub(crate) cursor: usize,
-    pub(crate) instructions: Vec<Instruction>,
+    pub(crate) instructions: &'a [Instruction],
     pub(crate) registers: Registers,
 }
 
@@ -171,18 +171,18 @@ impl<C: Convention> Emitter<C> {
         Ok(())
     }
 
-    pub fn emit(&mut self, ip: u64, module: Module) -> Result<Vec<u8>, Box<dyn Error>> {
+    pub fn emit(&mut self, ip: u64, module: &Module) -> Result<Vec<u8>, Box<dyn Error>> {
         for function in &module.functions {
             self.functions.insert(function.id, self.asm.create_label());
         }
 
-        for function in module.functions {
+        for function in &module.functions {
             self.emit_function(function)?;
         }
         Ok(self.asm.assemble(ip)?)
     }
 
-    fn emit_function(&mut self, function: Function) -> Result<(), Box<dyn Error>> {
+    fn emit_function(&mut self, function: &Function) -> Result<(), Box<dyn Error>> {
         self.asm
             .set_label(self.functions.get_mut(&function.id).unwrap())?;
 
@@ -198,7 +198,7 @@ impl<C: Convention> Emitter<C> {
             pending: Vec::new(),
             epilogue,
             cursor: 0,
-            instructions: function.instructions,
+            instructions: &function.instructions,
             registers: Registers::new(),
         };
 
