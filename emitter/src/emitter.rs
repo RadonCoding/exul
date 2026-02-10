@@ -223,7 +223,13 @@ impl<C: Convention> Emitter<C> {
         }
 
         let shadow = self.convention.shadow_space() as i32;
-        let space = ctx.slots.values().copied().max().unwrap_or(shadow);
+        let space = ctx
+            .slots
+            .values()
+            .copied()
+            .max()
+            .map(|max| max + 8)
+            .unwrap_or(shadow);
         let stack = ((space + 15) & !15) as i32;
 
         if stack > 0 {
