@@ -25,7 +25,8 @@ impl Peephole {
 
         while i < self.function.instructions.len() {
             let consumed = self
-                .try_compare_branch(&mut result, i)
+                .try_call_assign(&mut result, i)
+                .or_else(|| self.try_compare_branch(&mut result, i))
                 .or_else(|| self.try_remove_unreachable(&mut result, i));
 
             match consumed {
@@ -40,6 +41,44 @@ impl Peephole {
         }
 
         result
+    }
+
+    fn try_call_assign(&self, result: &mut Vec<Instruction>, i: usize) -> Option<usize> {
+        if i + 1 >= self.function.instructions.len() {
+            return None;
+        }
+
+        let current = &self.function.instructions[i];
+        let next = &self.function.instructions[i + 1];
+
+        if let (
+            InstructionKind::Call {
+                dst: tmp,
+                callee,
+                args,
+            },
+            InstructionKind::Assign {
+                dst,
+                src: Value::Symbol(s),
+            },
+        ) = (&current.kind, &next.kind)
+        {
+            if tmp == s {
+                if !self.symbol_read_after(*tmp, i + 2) {
+                    result.push(Instruction {
+                        kind: InstructionKind::Call {
+                            dst: *dst,
+                            callee: *callee,
+                            args: args.clone(),
+                        },
+                        offset: current.offset,
+                    });
+                    return Some(2);
+                }
+            }
+        }
+
+        None
     }
 
     fn try_compare_branch(&self, result: &mut Vec<Instruction>, i: usize) -> Option<usize> {

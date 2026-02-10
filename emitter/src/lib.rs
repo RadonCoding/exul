@@ -24,5 +24,7 @@ pub fn emit<C: Convention>(ip: u64, module: Module) -> Result<Vec<u8>, Box<dyn E
         entry: module.entry,
     };
 
+    println!("{:#?}", optimized);
+
     emitter.emit(ip, optimized)
 }

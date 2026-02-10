@@ -15,24 +15,34 @@ impl<C: Convention> Emitter<C> {
         left: Value,
         right: Value,
     ) -> Result<(), Box<dyn Error>> {
-        let dst_reg = ctx.allocs.get(&dst).copied().unwrap_or_else(|| self.ret());
+        let vctx = self.value_context(ctx);
 
-        self.load_to_register(ctx, left, dst_reg)?;
+        let left_loc = vctx.locate(left);
+        let right_loc = vctx.locate(right);
+        let dst_reg = ctx.allocs.get(&dst).copied().unwrap_or_else(|| self.ret());
         let dst64 = get_gpr64(dst_reg).unwrap();
 
-        let vctx = self.value_context(ctx);
-        let right_loc = vctx.locate(right);
+        match (left_loc, right_loc) {
+            (ValueLocation::Register(l), ValueLocation::Stack(off)) if l == dst_reg => {
+                self.asm.add(dst64, qword_ptr(rbp - off))?;
+            }
+            (ValueLocation::Stack(off), ValueLocation::Register(r)) if r == dst_reg => {
+                self.asm.add(dst64, qword_ptr(rbp - off))?;
+            }
+            _ => {
+                self.load_to_register(ctx, left, dst_reg)?;
 
-        match right_loc {
-            ValueLocation::Register(r) => {
-                let r64 = get_gpr64(r).unwrap();
-                self.asm.add(dst64, r64)?;
-            }
-            ValueLocation::Stack(offset) => {
-                self.asm.add(dst64, qword_ptr(rbp - offset))?;
-            }
-            ValueLocation::Immediate(imm) => {
-                self.asm.add(dst64, imm as i32)?;
+                match right_loc {
+                    ValueLocation::Register(r) => {
+                        self.asm.add(dst64, get_gpr64(r).unwrap())?;
+                    }
+                    ValueLocation::Stack(off) => {
+                        self.asm.add(dst64, qword_ptr(rbp - off))?;
+                    }
+                    ValueLocation::Immediate(imm) => {
+                        self.asm.add(dst64, imm as i32)?;
+                    }
+                }
             }
         }
 
