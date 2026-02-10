@@ -81,23 +81,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
 
     let tokens = lex::tokenize(&input)?;
+    
+    if args.tokens {
+        println!("{:#?}", tokens);
+    }
+
     let tree = ast::parse(tokens)?;
+
+    if args.ast {
+        println!("{:#?}", tree);
+    }
+
     let mut module = lower::generate(tree)?;
     let bytes = emitter::emit::<MicrosoftX64>(args.ip, &mut module)?;
 
-    let duration = start.elapsed();
-
-    if args.tokens {
-        println!("{:#?}", lex::tokenize(&input)?);
-    }
-
-    if args.ast {
-        println!("{:#?}", ast::parse(lex::tokenize(&input)?)?);
-    }
-
     if args.ir {
-        println!("{:#?}", lower::generate(ast::parse(lex::tokenize(&input)?)?)?);
+        println!("{:#?}", module);
     }
+
+    let duration = start.elapsed();
 
     dump(&bytes, args.ip);
 
