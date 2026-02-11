@@ -19,6 +19,7 @@ pub enum StmtKind<'a> {
         consequent: Vec<Stmt<'a>>,
         alternate: Option<Vec<Stmt<'a>>>,
     },
+    Expression(Expr<'a>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -81,6 +82,9 @@ impl<'a> Parse<'a> for Stmt<'a> {
             }));
         }
 
-        Err(parser.expected("statement"))
+        Ok(Stmt(Node {
+            kind: StmtKind::Expression(Expr::parse(parser)?),
+            offset,
+        }))
     }
 }

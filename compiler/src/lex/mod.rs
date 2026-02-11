@@ -11,6 +11,7 @@ pub enum TokenKind {
     Number,
     Equals,
     Equal,
+    PlusEqual,
     Plus,
     LParen,
     RParen,
@@ -121,6 +122,10 @@ static RULES: &[Rule] = &[
     Rule {
         matcher: Matcher::Fixed(b"="),
         kind: TokenKind::Equal,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"+="),
+        kind: TokenKind::PlusEqual,
     },
     Rule {
         matcher: Matcher::Fixed(b"+"),

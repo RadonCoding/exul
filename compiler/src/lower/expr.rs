@@ -24,12 +24,34 @@ impl Generate for Expr<'_> {
             }
             ExprKind::Identifier(v) => {
                 let name = String::from_utf8_lossy(v).to_string();
+                scope.resolve(&name).ok_or_else(|| {
+                    format!("Undeclared identifier '{}' at offset {}", name, offset).into()
+                })
+            }
+            ExprKind::Compound { dst, op, src } => {
+                let name = String::from_utf8_lossy(dst).to_string();
+                let lhs = scope.resolve(&name).ok_or_else(|| {
+                    format!("Undeclared identifier '{}' at offset {}", name, offset)
+                })?;
 
-                if let Some(val) = scope.resolve(&name) {
-                    return Ok(val);
+                let rhs = src.generate(ctx, scope, id)?;
+
+                if let Value::Symbol(s) = lhs {
+                    match op {
+                        Op::Add => ctx.emit(
+                            InstructionKind::Add {
+                                dst: s,
+                                left: lhs,
+                                right: rhs,
+                            },
+                            offset,
+                        ),
+                        Op::Equals => {}
+                    }
+                    return Ok(Value::Symbol(s));
                 }
 
-                Err(format!("Undeclared identifier '{}' at offset {}", name, offset).into())
+                Err(format!("Cannot assign to '{}' at offset {}", name, offset).into())
             }
             ExprKind::Binary { left, op, right } => {
                 let l = left.generate(ctx, scope, id)?;

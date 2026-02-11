@@ -64,6 +64,9 @@ impl Generate for Stmt<'_> {
 
                 ctx.emit(InstructionKind::Label(l2), offset);
             }
+            StmtKind::Expression(expr) => {
+                expr.generate(ctx, scope, id)?;
+            }
         }
         Ok(())
     }

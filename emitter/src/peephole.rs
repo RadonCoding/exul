@@ -41,6 +41,7 @@ impl<'a> Peephole<'a> {
                 }
             }
         }
+
         result
     }
 
@@ -106,6 +107,7 @@ impl<'a> Peephole<'a> {
                 }
             }
         }
+
         None
     }
 
