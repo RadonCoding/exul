@@ -111,7 +111,7 @@ fn match_number(input: &[u8]) -> Option<(usize, usize)> {
 }
 
 fn match_string(input: &[u8]) -> Option<(usize, usize)> {
-    if !input.starts_with(b'"') {
+    if !input.starts_with(b"\"") {
         return None;
     }
 
