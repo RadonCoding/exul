@@ -82,16 +82,6 @@ pub struct Import {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstructionKind {
-    Add {
-        dst: SymbolId,
-        left: Value,
-        right: Value,
-    },
-    Sub {
-        dst: SymbolId,
-        left: Value,
-        right: Value,
-    },
     Eq {
         dst: SymbolId,
         left: Value,
@@ -118,6 +108,21 @@ pub enum InstructionKind {
         right: Value,
     },
     Gt {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Add {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Sub {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Mul {
         dst: SymbolId,
         left: Value,
         right: Value,
@@ -189,21 +194,22 @@ impl InstructionKind {
     pub fn read_symbols(&self) -> Vec<SymbolId> {
         let mut symbols = Vec::new();
         match self {
-            InstructionKind::Assign { src, .. } => {
-                symbols.extend(src.symbols());
-            }
-            InstructionKind::Add { left, right, .. }
-            | InstructionKind::Sub { left, right, .. }
-            | InstructionKind::Eq { left, right, .. }
+            InstructionKind::Eq { left, right, .. }
             | InstructionKind::NotEq { left, right, .. }
             | InstructionKind::Lte { left, right, .. }
             | InstructionKind::Gte { left, right, .. }
             | InstructionKind::Lt { left, right, .. }
             | InstructionKind::Gt { left, right, .. }
+            | InstructionKind::Add { left, right, .. }
+            | InstructionKind::Sub { left, right, .. }
+            | InstructionKind::Mul { left, right, .. }
             | InstructionKind::JumpIfEq { left, right, .. }
             | InstructionKind::JumpIfNotEq { left, right, .. } => {
                 symbols.extend(left.symbols());
                 symbols.extend(right.symbols());
+            }
+            InstructionKind::Assign { src, .. } => {
+                symbols.extend(src.symbols());
             }
             InstructionKind::Call { args, .. } => {
                 for arg in args {
@@ -234,34 +240,20 @@ impl InstructionKind {
     /// Symbols that are written by this instruction.
     pub fn written_symbols(&self) -> Vec<SymbolId> {
         match self {
-            InstructionKind::Assign { dst, .. }
-            | InstructionKind::Add { dst, .. }
-            | InstructionKind::Sub { dst, .. }
-            | InstructionKind::Eq { dst, .. }
+            InstructionKind::Eq { dst, .. }
+            | InstructionKind::NotEq { dst, .. }
             | InstructionKind::Lte { dst, .. }
             | InstructionKind::Gte { dst, .. }
             | InstructionKind::Lt { dst, .. }
             | InstructionKind::Gt { dst, .. }
+            | InstructionKind::Add { dst, .. }
+            | InstructionKind::Sub { dst, .. }
+            | InstructionKind::Mul { dst, .. }
+            | InstructionKind::Assign { dst, .. }
             | InstructionKind::Call { dst, .. }
             | InstructionKind::Load { dst, .. }
             | InstructionKind::Segment { dst, .. } => vec![*dst],
             _ => vec![],
-        }
-    }
-
-    /// The (inheritor, source) pair for register allocation inheritance.
-    pub fn inheritance(&self) -> Option<(SymbolId, SymbolId)> {
-        match self {
-            InstructionKind::Assign {
-                dst,
-                src: Value::Symbol(src),
-            } => Some((*dst, *src)),
-            InstructionKind::Add {
-                dst,
-                left: Value::Symbol(left),
-                ..
-            } => Some((*dst, *left)),
-            _ => None,
         }
     }
 

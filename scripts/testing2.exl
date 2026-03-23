@@ -1,8 +1,0 @@
-fn f() {
-    return 12345
-}
-
-fn main() {
-    a = f() + 1
-    c = a - 1
-}

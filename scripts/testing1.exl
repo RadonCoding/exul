@@ -1,4 +1,0 @@
-fn main() {
-    handle = kernel32!GetStdHandle(-11)
-    kernel32!WriteFile(handle, "Hello, world!", 14, 0, 0)
-}

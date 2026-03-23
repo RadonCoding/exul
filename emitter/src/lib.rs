@@ -512,8 +512,6 @@ impl<C: Convention> Emitter<C> {
         kind: InstructionKind,
     ) -> Result<(), Box<dyn Error>> {
         match kind {
-            InstructionKind::Add { dst, left, right } => self.compile_add(ctx, dst, left, right),
-            InstructionKind::Sub { dst, left, right } => self.compile_sub(ctx, dst, left, right),
             InstructionKind::Eq { dst, left, right } => self.compile_eq(ctx, dst, left, right),
             InstructionKind::NotEq { dst, left, right } => {
                 self.compile_not_eq(ctx, dst, left, right)
@@ -522,6 +520,9 @@ impl<C: Convention> Emitter<C> {
             InstructionKind::Gte { dst, left, right } => self.compile_gte(ctx, dst, left, right),
             InstructionKind::Lt { dst, left, right } => self.compile_lt(ctx, dst, left, right),
             InstructionKind::Gt { dst, left, right } => self.compile_gt(ctx, dst, left, right),
+            InstructionKind::Add { dst, left, right } => self.compile_add(ctx, dst, left, right),
+            InstructionKind::Sub { dst, left, right } => self.compile_sub(ctx, dst, left, right),
+            InstructionKind::Mul { dst, left, right } => self.compile_mul(ctx, dst, left, right),
             InstructionKind::Assign { dst, src } => self.compile_assign(ctx, dst, src),
             InstructionKind::Call { dst, callee, args } => {
                 self.compile_call(ctx, dst, callee, args)

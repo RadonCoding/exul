@@ -28,6 +28,7 @@ pub enum TokenKind {
     Plus,
     MinusEqual,
     Minus,
+    StarEqual,
     Star,
     Bang,
     LParen,
@@ -245,6 +246,10 @@ static RULES: &[Rule] = &[
     Rule {
         matcher: Matcher::Fixed(b"-"),
         kind: TokenKind::Minus,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"*="),
+        kind: TokenKind::StarEqual,
     },
     Rule {
         matcher: Matcher::Fixed(b"*"),

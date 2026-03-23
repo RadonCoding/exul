@@ -24,6 +24,35 @@ pub trait Generate {
     ) -> Result<Self::Output, Box<dyn Error>>;
 }
 
+fn compile_builtin(
+    builtin: Builtin,
+    ctx: &mut Context,
+    root: &mut Symbols,
+    functions: &mut Vec<Function>,
+) -> Result<(), Box<dyn Error>> {
+    let tokens = lex::tokenize(builtin.source())?;
+    let tree = ast::parse(tokens)?;
+
+    let mut pending = Vec::new();
+    for decl in tree.decls.iter() {
+        let name = decl.name();
+        let id = if name == builtin.name() {
+            builtin.id()
+        } else {
+            let id = ctx.next_function();
+            root.define(name, Value::Function(id));
+            id
+        };
+        pending.push(id);
+    }
+
+    for (decl, id) in tree.decls.into_iter().zip(pending) {
+        functions.push(decl.generate(ctx, root, id)?);
+    }
+
+    Ok(())
+}
+
 pub fn generate(tree: Tree) -> Result<Module, Box<dyn Error>> {
     let mut ctx = Context::new();
     let mut root = Symbols::new(None);
@@ -36,6 +65,7 @@ pub fn generate(tree: Tree) -> Result<Module, Box<dyn Error>> {
     // Pre-register all user functions before lowering so forward calls resolve.
     let mut entry = None;
     let mut pending = Vec::new();
+
     for decl in tree.decls.iter() {
         let name = decl.name();
         let id = ctx.next_function();
@@ -50,11 +80,6 @@ pub fn generate(tree: Tree) -> Result<Module, Box<dyn Error>> {
 
     for (decl, id) in tree.decls.into_iter().zip(pending) {
         functions.push(decl.generate(&mut ctx, &mut root, id)?);
-    }
-
-    if !ctx.imports.is_empty() {
-        let stub = bootstrap(&mut ctx, entry);
-        functions.insert(0, stub);
     }
 
     let mut compiled = HashSet::new();
@@ -72,7 +97,7 @@ pub fn generate(tree: Tree) -> Result<Module, Box<dyn Error>> {
                     })
             })
             .copied()
-            .collect::<Vec<_>>();
+            .collect::<Vec<Builtin>>();
 
         if required.is_empty() {
             break;
@@ -80,30 +105,19 @@ pub fn generate(tree: Tree) -> Result<Module, Box<dyn Error>> {
 
         for builtin in required {
             compiled.insert(builtin.id());
-            let tokens = lex::tokenize(builtin.source())?;
-            let tree = ast::parse(tokens)?;
-
-            // Pre-register all functions in this source file before lowering any of them.
-            let mut pending = Vec::new();
-            for decl in tree.decls.iter() {
-                let name = decl.name();
-                let id = if name == builtin.name() {
-                    builtin.id()
-                } else {
-                    let id = ctx.next_function();
-                    root.define(name, Value::Function(id));
-                    id
-                };
-                pending.push(id);
-            }
-
-            for (decl, id) in tree.decls.into_iter().zip(pending) {
-                functions.push(decl.generate(&mut ctx, &mut root, id)?);
-            }
+            compile_builtin(builtin, &mut ctx, &mut root, &mut functions)?;
         }
     }
 
     let imports = ctx.imports.clone();
+
+    if !imports.is_empty() {
+        if !compiled.contains(&Builtin::Resolve.id()) {
+            compile_builtin(Builtin::Resolve, &mut ctx, &mut root, &mut functions)?;
+        }
+        let stub = bootstrap(&mut ctx, entry);
+        functions.insert(0, stub);
+    }
 
     let entry = if !imports.is_empty() {
         Some(0)

@@ -55,6 +55,7 @@ pub enum BinaryOp {
     Gt,
     Add,
     Sub,
+    Mul,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +82,7 @@ impl BinaryOp {
             TokenKind::Greater => Some((BinaryOp::Gt, 3)),
             TokenKind::Plus => Some((BinaryOp::Add, 4)),
             TokenKind::Minus => Some((BinaryOp::Sub, 4)),
+            TokenKind::Star => Some((BinaryOp::Mul, 5)),
             _ => None,
         }
     }

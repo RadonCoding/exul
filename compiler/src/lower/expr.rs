@@ -8,7 +8,8 @@ use std::error::Error;
 
 fn parse_number(v: &[u8]) -> Result<i64, Box<dyn std::error::Error>> {
     let s = String::from_utf8_lossy(v);
-    if s.starts_with("0x") || s.starts_with("0X") {
+
+    if s.starts_with("0x") {
         Ok(i64::from_str_radix(&s[2..], 16)?)
     } else {
         Ok(s.parse::<i64>()?)
@@ -124,6 +125,9 @@ impl Generate for Expr<'_> {
                     }
                     BinaryOp::Sub => {
                         ctx.emit(InstructionKind::Sub { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Mul => {
+                        ctx.emit(InstructionKind::Mul { dst, left, right }, self.0.position)
                     }
                 }
 

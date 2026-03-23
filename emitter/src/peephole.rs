@@ -19,7 +19,6 @@ impl<'a> Peephole<'a> {
         self.function.instructions = optimized;
     }
 
-    /// Iterates through the instruction stream to collapse redundant logic and eliminate dead code.
     fn optimize_instructions(&self) -> Vec<Instruction> {
         let mut result = Vec::new();
         let mut i = 0;
