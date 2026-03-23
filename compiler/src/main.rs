@@ -32,6 +32,8 @@ struct Args {
     ir: bool,
     #[arg(long)]
     asm: bool,
+    #[arg(long)]
+    func: Option<String>,
 }
 
 struct Symbols(HashMap<u64, String>);
@@ -79,7 +81,7 @@ fn build_symbols(assembly: &Assembly, module: &Module, ip: u64) -> HashMap<u64, 
     map
 }
 
-fn dump(assembly: &Assembly, module: &Module, ip: u64) {
+fn dump(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
     let bytes = &assembly.bytes;
     let symbols = build_symbols(assembly, module, ip);
     let imports_start = assembly.blobs.last().map(|b| b.offset + b.len).unwrap_or(0);
@@ -102,10 +104,12 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64) {
                 .iter()
                 .map(|b| format!("{:02x}", b))
                 .collect::<String>();
+
             let display = match std::str::from_utf8(&blob.content[..blob.content.len() - 1]) {
                 Ok(s) => format!("\"{}\"", s),
                 Err(_) => format!("<{} bytes>", blob.len),
             };
+
             max_bytes = max_bytes.max(hex.len());
             entries.push((ip + offset as u64, hex, display));
             offset += blob.len;
@@ -126,6 +130,7 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64) {
                 .iter()
                 .map(|b| format!("{:02x}", b))
                 .collect::<String>();
+
             max_bytes = max_bytes.max(hex.len());
             entries.push((ip + offset as u64, hex, String::new()));
             offset += 8;
@@ -138,12 +143,14 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64) {
             ip + offset as u64,
             DecoderOptions::NONE,
         );
+
         if !decoder.can_decode() {
             break;
         }
 
         let instruction = decoder.decode();
         let len = instruction.len();
+
         let hex = bytes[offset..offset + len]
             .iter()
             .map(|b| format!("{:02x}", b))
@@ -161,16 +168,33 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64) {
     }
 
     let mut was_label = false;
+    let mut printing = filter.is_none();
 
     for (address, hex, output) in &entries {
         if let Some(name) = symbols.get(address) {
-            if !was_label {
-                println!();
+            if let Some(filter) = filter {
+                printing = name == filter;
+            } else {
+                printing = true;
             }
-            println!("{}:", name);
-            was_label = true;
+
+            if printing {
+                if !was_label {
+                    println!();
+                }
+                println!("{}:", name);
+            }
+
+            was_label = printing;
         } else {
+            if !printing {
+                continue;
+            }
             was_label = false;
+        }
+
+        if !printing {
+            continue;
         }
 
         print!(
@@ -193,6 +217,7 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64) {
             println!("{}", output);
         }
     }
+
     println!();
 }
 
@@ -227,16 +252,23 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if args.ir {
         for f in &module.functions {
+            if let Some(filter) = &args.func {
+                if &f.name != filter {
+                    continue;
+                }
+            }
+
             println!("{}:", f.name);
-            for inst in &f.instructions {
-                println!("  {:?}", inst.kind);
+
+            for instruction in &f.instructions {
+                println!("  {:?}", instruction.kind);
             }
             println!();
         }
     }
 
     if args.asm {
-        dump(&assembly, &module, args.ip);
+        dump(&assembly, &module, args.ip, args.func.as_deref());
     }
 
     println!(

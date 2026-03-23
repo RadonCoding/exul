@@ -57,8 +57,8 @@ impl Registers {
     }
 
     /// Drops all caller-saved registers from tracking to reflect callee clobbering.
-    pub fn invalidate_volatile<C: Convention>(&mut self, convention: &C) {
-        let volatiles = convention.volatile_regs();
+    pub fn invalidate_volatiles<C: Convention>(&mut self, convention: &C) {
+        let volatiles = convention.volatile_registers();
         self.tracked.retain(|reg, _| !volatiles.contains(reg));
     }
 

@@ -214,14 +214,14 @@ impl<'a> Peephole<'a> {
 
         let target = written[0];
 
-        for inst in self.function.instructions.iter().skip(i + 1) {
-            if inst.kind.read_symbols().contains(&target) {
+        for instruction in self.function.instructions.iter().skip(i + 1) {
+            if instruction.kind.read_symbols().contains(&target) {
                 return None;
             }
-            if inst.kind.written_symbols().contains(&target) {
+            if instruction.kind.written_symbols().contains(&target) {
                 return Some(1);
             }
-            if matches!(inst.kind, InstructionKind::Label(_)) {
+            if matches!(instruction.kind, InstructionKind::Label(_)) {
                 return None;
             }
         }
@@ -233,6 +233,6 @@ impl<'a> Peephole<'a> {
     fn symbol_read_after(&self, symbol: SymbolId, start: usize) -> bool {
         self.function.instructions[start..]
             .iter()
-            .any(|inst| inst.kind.read_symbols().contains(&symbol))
+            .any(|i| i.kind.read_symbols().contains(&symbol))
     }
 }

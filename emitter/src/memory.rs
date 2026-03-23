@@ -20,26 +20,26 @@ impl<C: Convention> Emitter<C> {
 
         // Resolve the address directly to avoid clobbering live values with an intermediate move.
         let src_loc = ctx.registers.locate(src, &ctx.slots, &self.data_labels);
-        let addr64 = match src_loc {
+        let src64 = match src_loc {
             Operand::Register(r) => get_gpr64(r).unwrap(),
             Operand::Stack(offset) => {
-                let tmp = self.scratch(ctx)?;
-                self.asm
-                    .mov(get_gpr64(tmp).unwrap(), qword_ptr(rbp - offset))?;
-                ctx.registers.track(tmp, src);
-                get_gpr64(tmp).unwrap()
+                let tmp_reg = self.scratch(ctx)?;
+                let tmp64 = get_gpr64(tmp_reg).unwrap();
+                self.asm.mov(tmp64, qword_ptr(rbp - offset))?;
+                ctx.registers.track(tmp_reg, src);
+                tmp64
             }
             _ => unreachable!(),
         };
 
         match size {
-            Memory::Byte => self.asm.movzx(dst64, byte_ptr(addr64))?,
-            Memory::Word => self.asm.movzx(dst64, word_ptr(addr64))?,
-            Memory::Dword => self.asm.mov(self.to_reg32(dst_reg), dword_ptr(addr64))?,
-            Memory::Qword => self.asm.mov(dst64, qword_ptr(addr64))?,
+            Memory::Byte => self.asm.movzx(dst64, byte_ptr(src64))?,
+            Memory::Word => self.asm.movzx(dst64, word_ptr(src64))?,
+            Memory::Dword => self.asm.mov(self.to_reg32(dst_reg), dword_ptr(src64))?,
+            Memory::Qword => self.asm.mov(dst64, qword_ptr(src64))?,
         }
 
-        ctx.registers.track(dst_reg, Value::Symbol(dst));
+        self.spill(ctx, dst, dst_reg)?;
 
         Ok(())
     }
@@ -51,21 +51,21 @@ impl<C: Convention> Emitter<C> {
         dst: Value,
         src: Value,
     ) -> Result<(), Box<dyn Error>> {
-        let addr_reg = self.scratch(ctx)?;
-        self.load_to_register(ctx, dst, addr_reg)?;
+        let dst_reg = self.scratch(ctx)?;
+        self.load_to_register(ctx, dst, dst_reg)?;
 
-        let data_reg = self.scratch(ctx)?;
-        self.load_to_register(ctx, src, data_reg)?;
+        let src_reg = self.scratch(ctx)?;
+        self.load_to_register(ctx, src, src_reg)?;
 
-        let addr64 = get_gpr64(addr_reg).unwrap();
+        let dst64 = get_gpr64(dst_reg).unwrap();
 
         match size {
-            Memory::Byte => self.asm.mov(byte_ptr(addr64), self.to_reg8(data_reg))?,
-            Memory::Word => self.asm.mov(word_ptr(addr64), self.to_reg16(data_reg))?,
-            Memory::Dword => self.asm.mov(dword_ptr(addr64), self.to_reg32(data_reg))?,
+            Memory::Byte => self.asm.mov(byte_ptr(dst64), self.to_reg8(src_reg))?,
+            Memory::Word => self.asm.mov(word_ptr(dst64), self.to_reg16(src_reg))?,
+            Memory::Dword => self.asm.mov(dword_ptr(dst64), self.to_reg32(src_reg))?,
             Memory::Qword => self
                 .asm
-                .mov(qword_ptr(addr64), get_gpr64(data_reg).unwrap())?,
+                .mov(qword_ptr(dst64), get_gpr64(src_reg).unwrap())?,
         }
 
         Ok(())
@@ -100,7 +100,7 @@ impl<C: Convention> Emitter<C> {
             }
         }
 
-        ctx.registers.track(dst_reg, Value::Symbol(dst));
+        self.spill(ctx, dst, dst_reg)?;
 
         Ok(())
     }

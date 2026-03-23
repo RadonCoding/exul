@@ -50,7 +50,8 @@ impl<C: Convention> Emitter<C> {
     ) -> Result<(), Box<dyn Error>> {
         ctx.registers.invalidate_symbol(dst);
 
-        let mut stacked = 0;
+        let shadow = self.convention.shadow_space() as i32;
+        let argument_registers = self.convention.argument_registers().len();
 
         for (i, &arg) in args.iter().enumerate() {
             if let Some(reg) = self.convention.argument_reg(i) {
@@ -58,8 +59,9 @@ impl<C: Convention> Emitter<C> {
             } else {
                 let reg = self.scratch(ctx)?;
                 self.load_to_register(ctx, arg, reg)?;
-                self.asm.push(get_gpr64(reg).unwrap())?;
-                stacked += 1;
+                let offset = shadow + ((i - argument_registers) as i32 * 8);
+                self.asm
+                    .mov(qword_ptr(rsp + offset), get_gpr64(reg).unwrap())?;
             }
         }
 
@@ -69,12 +71,9 @@ impl<C: Convention> Emitter<C> {
             self.asm.call(self.functions[&callee])?;
         }
 
-        if stacked > 0 {
-            self.asm.add(rsp, (stacked * 8) as i32)?;
-        }
+        ctx.registers.invalidate_volatiles(&self.convention);
 
-        ctx.registers.invalidate_volatile(&self.convention);
-        self.spill(ctx, dst, self.ret())?;
+        ctx.registers.track(self.ret(), Value::Symbol(dst));
 
         Ok(())
     }

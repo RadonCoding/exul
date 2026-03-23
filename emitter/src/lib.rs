@@ -130,7 +130,7 @@ impl<C: Convention> Emitter<C> {
     }
 
     pub(crate) fn ret(&self) -> Register {
-        self.convention.return_reg()
+        self.convention.return_register()
     }
 
     /// Returns a free volatile register, evicting to the stack if all are occupied.
@@ -138,7 +138,7 @@ impl<C: Convention> Emitter<C> {
         &mut self,
         ctx: &mut FunctionContext,
     ) -> Result<Register, Box<dyn Error>> {
-        let volatiles = self.convention.volatile_regs();
+        let volatiles = self.convention.volatile_registers();
 
         if let Some(r) = ctx.registers.free(volatiles.iter()) {
             return Ok(r);
@@ -187,6 +187,7 @@ impl<C: Convention> Emitter<C> {
         }
 
         ctx.registers.track(reg, val);
+
         Ok(())
     }
 
@@ -204,7 +205,7 @@ impl<C: Convention> Emitter<C> {
             Operand::Register(r) if r == reg => {
                 let scratch = self
                     .convention
-                    .volatile_regs()
+                    .volatile_registers()
                     .iter()
                     .find(|&&r| r != reg)
                     .copied()
@@ -286,7 +287,7 @@ impl<C: Convention> Emitter<C> {
         Ok(())
     }
 
-    /// Writes a register value back to its guaranteed spill slot and updates the register tracker.
+    /// Writes a register value back to its guaranteed spill slot.
     pub(crate) fn spill(
         &mut self,
         ctx: &mut FunctionContext,
@@ -296,8 +297,9 @@ impl<C: Convention> Emitter<C> {
         if let Some(&offset) = ctx.slots.get(&dst) {
             self.asm
                 .mov(qword_ptr(rbp - offset), get_gpr64(reg).unwrap())?;
-            ctx.registers.track(reg, Value::Symbol(dst));
         }
+
+        ctx.registers.track(reg, Value::Symbol(dst));
 
         Ok(())
     }
@@ -417,9 +419,9 @@ impl<C: Convention> Emitter<C> {
     }
 
     fn allocate(&mut self, ctx: &mut FunctionContext, params: &[SymbolId]) {
-        let mut allocator = Allocator::new(ctx.instructions, &self.convention);
+        let mut allocator = Allocator::new(&self.convention);
         allocator.allocate_parameters(&mut ctx.slots, params);
-        allocator.allocate_symbols(&mut ctx.slots);
+        allocator.allocate_symbols(&mut ctx.slots, &ctx.instructions);
     }
 
     fn emit_function(&mut self, function: &Function) -> Result<(), Box<dyn Error>> {
@@ -467,7 +469,7 @@ impl<C: Convention> Emitter<C> {
             } else {
                 let offset = 16
                     + self.convention.shadow_space()
-                    + ((i - self.convention.argument_regs().len()) * 8);
+                    + ((i - self.convention.argument_registers().len()) * 8);
                 let reg = self.scratch(&mut ctx)?;
                 self.asm
                     .mov(get_gpr64(reg).unwrap(), qword_ptr(rbp + offset as i32))?;
