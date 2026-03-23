@@ -1,7 +1,7 @@
 use crate::{
     convention::Convention,
-    emitter::{Emitter, FunctionContext},
-    registers::ValueLocation,
+    registers::Operand,
+    {Emitter, FunctionContext},
 };
 use iced_x86::code_asm::{get_gpr64, qword_ptr, rbp};
 use intermediate::{SymbolId, Value};
@@ -15,40 +15,33 @@ impl<C: Convention> Emitter<C> {
         left: Value,
         right: Value,
     ) -> Result<(), Box<dyn Error>> {
-        let vctx = self.value_context(ctx);
-
-        let left_loc = vctx.locate(left);
-        let right_loc = vctx.locate(right);
-        let dst_reg = ctx.allocs.get(&dst).copied().unwrap_or_else(|| self.ret());
-        let dst64 = get_gpr64(dst_reg).unwrap();
-
-        match (left_loc, right_loc) {
-            (ValueLocation::Register(l), ValueLocation::Stack(offset)) if l == dst_reg => {
-                self.asm.add(dst64, qword_ptr(rbp - offset))?;
+        self.emit_binary(ctx, dst, left, right, |s, dst64, right_loc| {
+            match right_loc {
+                Operand::Register(r) => s.asm.add(dst64, get_gpr64(r).unwrap())?,
+                Operand::Stack(offset) => s.asm.add(dst64, qword_ptr(rbp - offset))?,
+                Operand::Immediate(imm) => s.asm.add(dst64, imm as i32)?,
+                _ => unreachable!(),
             }
-            (ValueLocation::Stack(offset), ValueLocation::Register(r)) if r == dst_reg => {
-                self.asm.add(dst64, qword_ptr(rbp - offset))?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn compile_sub(
+        &mut self,
+        ctx: &mut FunctionContext,
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    ) -> Result<(), Box<dyn Error>> {
+        self.emit_binary(ctx, dst, left, right, |s, dst64, right_loc| {
+            match right_loc {
+                Operand::Register(r) => s.asm.sub(dst64, get_gpr64(r).unwrap())?,
+                Operand::Stack(offset) => s.asm.sub(dst64, qword_ptr(rbp - offset))?,
+                Operand::Immediate(imm) => s.asm.sub(dst64, imm as i32)?,
+                _ => unreachable!(),
             }
-            _ => {
-                self.load_to_register(ctx, left, dst_reg)?;
-
-                match right_loc {
-                    ValueLocation::Register(r) => {
-                        self.asm.add(dst64, get_gpr64(r).unwrap())?;
-                    }
-                    ValueLocation::Stack(offset) => {
-                        self.asm.add(dst64, qword_ptr(rbp - offset))?;
-                    }
-                    ValueLocation::Immediate(imm) => {
-                        self.asm.add(dst64, imm as i32)?;
-                    }
-                }
-            }
-        }
-
-        self.store_symbol(ctx, dst, dst_reg)?;
-
-        Ok(())
+            Ok(())
+        })
     }
 
     pub(crate) fn compile_eq(
@@ -58,33 +51,86 @@ impl<C: Convention> Emitter<C> {
         left: Value,
         right: Value,
     ) -> Result<(), Box<dyn Error>> {
-        let cmp_reg = self.vol();
+        self.emit_compare_value(ctx, dst, left, right, |s, cmp64| {
+            let res8 = s.to_reg8(cmp64.into());
+            s.asm.sete(res8)?;
+            s.asm.movzx(cmp64, res8)?;
+            Ok(())
+        })
+    }
 
-        self.load_to_register(ctx, left, cmp_reg)?;
-        let cmp64 = get_gpr64(cmp_reg).unwrap();
+    pub(crate) fn compile_not_eq(
+        &mut self,
+        ctx: &mut FunctionContext,
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    ) -> Result<(), Box<dyn Error>> {
+        self.emit_compare_value(ctx, dst, left, right, |s, cmp64| {
+            let res8 = s.to_reg8(cmp64.into());
+            s.asm.setne(res8)?;
+            s.asm.movzx(cmp64, res8)?;
+            Ok(())
+        })
+    }
 
-        let vctx = self.value_context(ctx);
-        let right_loc = vctx.locate(right);
+    pub(crate) fn compile_lte(
+        &mut self,
+        ctx: &mut FunctionContext,
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    ) -> Result<(), Box<dyn Error>> {
+        self.emit_compare_value(ctx, dst, left, right, |s: &mut Emitter<C>, cmp64| {
+            let res8 = s.to_reg8(cmp64.into());
+            s.asm.setle(res8)?;
+            s.asm.movzx(cmp64, res8)?;
+            Ok(())
+        })
+    }
 
-        match right_loc {
-            ValueLocation::Register(r) => {
-                let r64 = get_gpr64(r).unwrap();
-                self.asm.cmp(cmp64, r64)?;
-            }
-            ValueLocation::Stack(offset) => {
-                self.asm.cmp(cmp64, qword_ptr(rbp - offset))?;
-            }
-            ValueLocation::Immediate(imm) => {
-                self.asm.cmp(cmp64, imm as i32)?;
-            }
-        }
+    pub(crate) fn compile_gte(
+        &mut self,
+        ctx: &mut FunctionContext,
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    ) -> Result<(), Box<dyn Error>> {
+        self.emit_compare_value(ctx, dst, left, right, |s, cmp64| {
+            let res8 = s.to_reg8(cmp64.into());
+            s.asm.setge(res8)?;
+            s.asm.movzx(cmp64, res8)?;
+            Ok(())
+        })
+    }
 
-        let res8 = self.to_reg8(cmp_reg);
-        self.asm.sete(res8)?;
-        self.asm.movzx(cmp64, res8)?;
+    pub(crate) fn compile_lt(
+        &mut self,
+        ctx: &mut FunctionContext,
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    ) -> Result<(), Box<dyn Error>> {
+        self.emit_compare_value(ctx, dst, left, right, |s, cmp64| {
+            let res8 = s.to_reg8(cmp64.into());
+            s.asm.setl(res8)?;
+            s.asm.movzx(cmp64, res8)?;
+            Ok(())
+        })
+    }
 
-        self.store_symbol(ctx, dst, cmp_reg)?;
-
-        Ok(())
+    pub(crate) fn compile_gt(
+        &mut self,
+        ctx: &mut FunctionContext,
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    ) -> Result<(), Box<dyn Error>> {
+        self.emit_compare_value(ctx, dst, left, right, |s, cmp64| {
+            let res8 = s.to_reg8(cmp64.into());
+            s.asm.setg(res8)?;
+            s.asm.movzx(cmp64, res8)?;
+            Ok(())
+        })
     }
 }

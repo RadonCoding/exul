@@ -22,12 +22,12 @@ pub struct Decl<'a>(pub Node<DeclKind<'a>>);
 
 impl<'a> Parse<'a> for Decl<'a> {
     fn parse(parser: &mut Parser<'a>) -> Result<Self, Box<dyn Error>> {
-        let offset = parser.peek().start;
+        let position = parser.peek().start;
 
         if parser.match_token(TokenKind::Function) {
             return Ok(Decl(Node {
                 kind: DeclKind::Function(FunctionDecl::parse(parser)?),
-                offset,
+                position,
             }));
         }
 

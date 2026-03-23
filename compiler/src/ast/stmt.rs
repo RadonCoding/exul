@@ -1,5 +1,7 @@
 use std::error::Error;
 
+use intermediate::Memory;
+
 use crate::{
     ast::{Node, Parse, Parser},
     lex::TokenKind,
@@ -18,6 +20,17 @@ pub enum StmtKind<'a> {
         cond: Expr<'a>,
         consequent: Vec<Stmt<'a>>,
         alternate: Option<Vec<Stmt<'a>>>,
+    },
+    For {
+        init: Box<Stmt<'a>>,
+        cond: Expr<'a>,
+        step: Box<Stmt<'a>>,
+        body: Vec<Stmt<'a>>,
+    },
+    Store {
+        size: Memory,
+        address: Expr<'a>,
+        value: Expr<'a>,
     },
     Expression(Expr<'a>),
 }
@@ -39,16 +52,37 @@ impl<'a> Stmt<'a> {
 
         Ok(stmts)
     }
+
+    fn parse_clause(parser: &mut Parser<'a>) -> Result<Stmt<'a>, Box<dyn Error>> {
+        let position = parser.peek().start;
+
+        if parser.check(TokenKind::Identifier) && parser.check_next(TokenKind::Equal) {
+            let name = parser.consume(TokenKind::Identifier, "identifier")?.value;
+            parser.consume(TokenKind::Equal, "'='")?;
+
+            let value = Expr::parse(parser)?;
+
+            return Ok(Stmt(Node {
+                kind: StmtKind::Assignment { name, value },
+                position,
+            }));
+        }
+
+        Ok(Stmt(Node {
+            kind: StmtKind::Expression(Expr::parse(parser)?),
+            position,
+        }))
+    }
 }
 
 impl<'a> Parse<'a> for Stmt<'a> {
     fn parse(parser: &mut Parser<'a>) -> Result<Self, Box<dyn Error>> {
-        let offset = parser.peek().start;
+        let position = parser.peek().start;
 
         if parser.match_token(TokenKind::Return) {
             return Ok(Stmt(Node {
                 kind: StmtKind::Return(Expr::parse(parser)?),
-                offset,
+                position,
             }));
         }
 
@@ -67,7 +101,70 @@ impl<'a> Parse<'a> for Stmt<'a> {
                     consequent: then_branch,
                     alternate: else_branch,
                 },
-                offset,
+                position,
+            }));
+        }
+
+        if parser.match_token(TokenKind::For) {
+            parser.consume(TokenKind::LParen, "'('")?;
+
+            let init = Box::new(Stmt::parse_clause(parser)?);
+            parser.consume(TokenKind::Semicolon, "';'")?;
+
+            let cond = Expr::parse(parser)?;
+            parser.consume(TokenKind::Semicolon, "';'")?;
+
+            let step = Box::new(Stmt::parse_clause(parser)?);
+            parser.consume(TokenKind::RParen, "')'")?;
+
+            let body = Self::parse_block(parser)?;
+
+            return Ok(Stmt(Node {
+                kind: StmtKind::For {
+                    init,
+                    cond,
+                    step,
+                    body,
+                },
+                position,
+            }));
+        }
+
+        if parser.match_token(TokenKind::Star) {
+            let size = match parser.peek().kind {
+                TokenKind::Byte => {
+                    parser.advance();
+                    intermediate::Memory::Byte
+                }
+                TokenKind::Word => {
+                    parser.advance();
+                    intermediate::Memory::Word
+                }
+                TokenKind::Dword => {
+                    parser.advance();
+                    intermediate::Memory::Dword
+                }
+                TokenKind::Qword => {
+                    parser.advance();
+                    intermediate::Memory::Qword
+                }
+                _ => return Err(parser.expected("memory size")),
+            };
+
+            parser.consume(TokenKind::LParen, "'('")?;
+            let address = Expr::parse(parser)?;
+            parser.consume(TokenKind::RParen, "')'")?;
+
+            parser.consume(TokenKind::Equal, "'='")?;
+            let value = Expr::parse(parser)?;
+
+            return Ok(Stmt(Node {
+                kind: StmtKind::Store {
+                    size,
+                    address,
+                    value,
+                },
+                position,
             }));
         }
 
@@ -78,13 +175,13 @@ impl<'a> Parse<'a> for Stmt<'a> {
 
             return Ok(Stmt(Node {
                 kind: StmtKind::Assignment { name, value },
-                offset,
+                position,
             }));
         }
 
         Ok(Stmt(Node {
             kind: StmtKind::Expression(Expr::parse(parser)?),
-            offset,
+            position,
         }))
     }
 }

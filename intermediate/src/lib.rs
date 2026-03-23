@@ -1,6 +1,9 @@
 pub mod symbols;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FunctionId(pub usize);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymbolId(pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -8,27 +11,113 @@ pub struct LabelId(pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
+    Function(FunctionId),
     Symbol(SymbolId),
     Constant(i64),
+    String(usize),
 }
 
 impl Value {
     fn symbols(&self) -> Vec<SymbolId> {
         match self {
             Value::Symbol(s) => vec![*s],
-            Value::Constant(_) => vec![],
+            _ => vec![],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Memory {
+    Byte,
+    Word,
+    Dword,
+    Qword,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Segment {
+    Gs,
+    Fs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Builtin {
+    Resolve,
+    Print,
+}
+
+impl Builtin {
+    pub fn all() -> &'static [Builtin] {
+        &[Builtin::Resolve, Builtin::Print]
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Builtin::Resolve => "__resolve__",
+            Builtin::Print => "print",
+        }
+    }
+
+    pub fn id(&self) -> FunctionId {
+        match self {
+            Builtin::Resolve => FunctionId(0),
+            Builtin::Print => FunctionId(1),
+        }
+    }
+
+    pub fn source(&self) -> &'static [u8] {
+        match self {
+            Builtin::Resolve => include_bytes!("../../stdlib/resolve.exl"),
+            Builtin::Print => include_bytes!("../../stdlib/print.exl"),
         }
     }
 }
 
 #[derive(Debug, Clone)]
+pub struct Import {
+    pub id: FunctionId,
+    pub module: String,
+    pub function: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum InstructionKind {
     Add {
         dst: SymbolId,
         left: Value,
         right: Value,
     },
+    Sub {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
     Eq {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    NotEq {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Lte {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Gte {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Lt {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Gt {
         dst: SymbolId,
         left: Value,
         right: Value,
@@ -39,13 +128,37 @@ pub enum InstructionKind {
     },
     Call {
         dst: SymbolId,
-        callee: SymbolId,
+        callee: FunctionId,
         args: Vec<Value>,
+    },
+    Load {
+        dst: SymbolId,
+        size: Memory,
+        src: Value,
+    },
+    Store {
+        size: Memory,
+        dst: Value,
+        src: Value,
+    },
+    Import {
+        import: FunctionId,
+        src: Value,
+    },
+    Segment {
+        dst: SymbolId,
+        seg: Segment,
+        offset: Value,
     },
     Return(Value),
     Label(LabelId),
     JumpIfFalse {
         cond: Value,
+        dst: LabelId,
+    },
+    JumpIfEq {
+        left: Value,
+        right: Value,
         dst: LabelId,
     },
     JumpIfNotEq {
@@ -57,6 +170,22 @@ pub enum InstructionKind {
 }
 
 impl InstructionKind {
+    /// Whether the instruction has observable side effects beyond producing a value.
+    pub fn has_effects(&self) -> bool {
+        matches!(
+            self,
+            InstructionKind::Call { .. }
+                | InstructionKind::Store { .. }
+                | InstructionKind::Return(_)
+                | InstructionKind::Jump(_)
+                | InstructionKind::JumpIfFalse { .. }
+                | InstructionKind::JumpIfEq { .. }
+                | InstructionKind::JumpIfNotEq { .. }
+                | InstructionKind::Label(_)
+        )
+    }
+
+    /// Symbols that are read by this instruction.
     pub fn read_symbols(&self) -> Vec<SymbolId> {
         let mut symbols = Vec::new();
         match self {
@@ -64,7 +193,14 @@ impl InstructionKind {
                 symbols.extend(src.symbols());
             }
             InstructionKind::Add { left, right, .. }
+            | InstructionKind::Sub { left, right, .. }
             | InstructionKind::Eq { left, right, .. }
+            | InstructionKind::NotEq { left, right, .. }
+            | InstructionKind::Lte { left, right, .. }
+            | InstructionKind::Gte { left, right, .. }
+            | InstructionKind::Lt { left, right, .. }
+            | InstructionKind::Gt { left, right, .. }
+            | InstructionKind::JumpIfEq { left, right, .. }
             | InstructionKind::JumpIfNotEq { left, right, .. } => {
                 symbols.extend(left.symbols());
                 symbols.extend(right.symbols());
@@ -77,17 +213,62 @@ impl InstructionKind {
             InstructionKind::Return(val) | InstructionKind::JumpIfFalse { cond: val, .. } => {
                 symbols.extend(val.symbols());
             }
+            InstructionKind::Load { src, .. } => {
+                symbols.extend(src.symbols());
+            }
+            InstructionKind::Store { dst, src, .. } => {
+                symbols.extend(dst.symbols());
+                symbols.extend(src.symbols());
+            }
+            InstructionKind::Import { src, .. } => {
+                symbols.extend(src.symbols());
+            }
+            InstructionKind::Segment { offset, .. } => {
+                symbols.extend(offset.symbols());
+            }
             InstructionKind::Jump(_) | InstructionKind::Label(_) => {}
         }
         symbols
     }
 
+    /// Symbols that are written by this instruction.
     pub fn written_symbols(&self) -> Vec<SymbolId> {
         match self {
             InstructionKind::Assign { dst, .. }
             | InstructionKind::Add { dst, .. }
+            | InstructionKind::Sub { dst, .. }
             | InstructionKind::Eq { dst, .. }
-            | InstructionKind::Call { dst, .. } => vec![*dst],
+            | InstructionKind::Lte { dst, .. }
+            | InstructionKind::Gte { dst, .. }
+            | InstructionKind::Lt { dst, .. }
+            | InstructionKind::Gt { dst, .. }
+            | InstructionKind::Call { dst, .. }
+            | InstructionKind::Load { dst, .. }
+            | InstructionKind::Segment { dst, .. } => vec![*dst],
+            _ => vec![],
+        }
+    }
+
+    /// The (inheritor, source) pair for register allocation inheritance.
+    pub fn inheritance(&self) -> Option<(SymbolId, SymbolId)> {
+        match self {
+            InstructionKind::Assign {
+                dst,
+                src: Value::Symbol(src),
+            } => Some((*dst, *src)),
+            InstructionKind::Add {
+                dst,
+                left: Value::Symbol(left),
+                ..
+            } => Some((*dst, *left)),
+            _ => None,
+        }
+    }
+
+    /// Functions called by this instruction.
+    pub fn called(&self) -> Vec<FunctionId> {
+        match self {
+            InstructionKind::Call { callee, .. } => vec![*callee],
             _ => vec![],
         }
     }
@@ -101,28 +282,44 @@ pub struct Instruction {
 
 #[derive(Debug)]
 pub struct Function {
-    pub id: SymbolId,
+    pub id: FunctionId,
+    pub name: String,
     pub instructions: Vec<Instruction>,
-    pub params: usize,
+    pub params: Vec<SymbolId>,
     pub capacity: usize,
 }
 
 #[derive(Debug)]
 pub struct Module {
-    pub functions: Vec<Function>,
     pub entry: Option<usize>,
+    pub strings: Vec<String>,
+    pub imports: Vec<Import>,
+    pub functions: Vec<Function>,
 }
 
 pub struct Context {
     pub instructions: Vec<Instruction>,
+    pub strings: Vec<String>,
+    pub imports: Vec<Import>,
+    pub functions: usize,
     pub symbols: usize,
     pub labels: usize,
 }
 
 impl Context {
     pub fn new() -> Self {
+        let reserved = Builtin::all()
+            .iter()
+            .map(|b| b.id().0)
+            .max()
+            .map(|m| m + 1)
+            .unwrap_or(0);
+
         Self {
             instructions: Vec::new(),
+            imports: Vec::new(),
+            strings: Vec::new(),
+            functions: reserved,
             symbols: 0,
             labels: 0,
         }
@@ -130,8 +327,14 @@ impl Context {
 
     pub fn reset(&mut self) {
         self.instructions.clear();
-        self.symbols = 0;
+        self.symbols = self.functions;
         self.labels = 0;
+    }
+
+    pub fn next_function(&mut self) -> FunctionId {
+        let id = FunctionId(self.functions);
+        self.functions += 1;
+        id
     }
 
     pub fn next_symbol(&mut self) -> SymbolId {
@@ -148,5 +351,14 @@ impl Context {
 
     pub fn emit(&mut self, kind: InstructionKind, offset: usize) {
         self.instructions.push(Instruction { kind, offset });
+    }
+
+    pub fn string(&mut self, s: String) -> usize {
+        if let Some(i) = self.strings.iter().position(|x| x == &s) {
+            return i;
+        }
+        let i = self.strings.len();
+        self.strings.push(s);
+        i
     }
 }

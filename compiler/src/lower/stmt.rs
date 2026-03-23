@@ -1,4 +1,4 @@
-use intermediate::{Context, InstructionKind, SymbolId, Value, symbols::Symbols};
+use intermediate::{Context, FunctionId, InstructionKind, Value, symbols::Symbols};
 
 use crate::{
     ast::stmt::{Stmt, StmtKind},
@@ -13,28 +13,24 @@ impl Generate for Stmt<'_> {
         self,
         ctx: &mut Context,
         scope: &mut Symbols,
-        id: SymbolId,
+        id: FunctionId,
     ) -> Result<Self::Output, Box<dyn Error>> {
-        let offset = self.0.offset;
-
         match self.0.kind {
             StmtKind::Assignment { name, value } => {
-                let src = value.generate(ctx, scope, id)?;
+                let value = value.generate(ctx, scope, id)?;
                 let name = String::from_utf8_lossy(name).to_string();
-
-                let dst = if let Some(Value::Symbol(existing)) = scope.resolve(&name) {
-                    existing
+                let dst = if let Some(Value::Symbol(dst)) = scope.resolve(&name) {
+                    dst
                 } else {
-                    let sym = ctx.next_symbol();
-                    scope.define(name, Value::Symbol(sym));
-                    sym
+                    let dst = ctx.next_symbol();
+                    scope.define(name, Value::Symbol(dst));
+                    dst
                 };
-
-                ctx.emit(InstructionKind::Assign { dst, src }, offset);
+                ctx.emit(InstructionKind::Assign { dst, src: value }, self.0.position);
             }
             StmtKind::Return(expr) => {
-                let val = expr.generate(ctx, scope, id)?;
-                ctx.emit(InstructionKind::Return(val), offset);
+                let value = expr.generate(ctx, scope, id)?;
+                ctx.emit(InstructionKind::Return(value), self.0.position);
             }
             StmtKind::If {
                 cond,
@@ -42,19 +38,18 @@ impl Generate for Stmt<'_> {
                 alternate,
             } => {
                 let cond = cond.generate(ctx, scope, id)?;
-
                 let l1 = ctx.next_label();
                 let l2 = ctx.next_label();
 
-                ctx.emit(InstructionKind::JumpIfFalse { cond, dst: l1 }, offset);
-
+                ctx.emit(
+                    InstructionKind::JumpIfFalse { cond, dst: l1 },
+                    self.0.position,
+                );
                 for stmt in consequent {
                     stmt.generate(ctx, scope, id)?;
                 }
-
-                ctx.emit(InstructionKind::Jump(l2), offset);
-
-                ctx.emit(InstructionKind::Label(l1), offset);
+                ctx.emit(InstructionKind::Jump(l2), self.0.position);
+                ctx.emit(InstructionKind::Label(l1), self.0.position);
 
                 if let Some(stmts) = alternate {
                     for stmt in stmts {
@@ -62,12 +57,60 @@ impl Generate for Stmt<'_> {
                     }
                 }
 
-                ctx.emit(InstructionKind::Label(l2), offset);
+                ctx.emit(InstructionKind::Label(l2), self.0.position);
+            }
+            StmtKind::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                init.generate(ctx, scope, id)?;
+
+                let loop_start = ctx.next_label();
+                let loop_end = ctx.next_label();
+
+                ctx.emit(InstructionKind::Label(loop_start), self.0.position);
+
+                let cond = cond.generate(ctx, scope, id)?;
+                ctx.emit(
+                    InstructionKind::JumpIfFalse {
+                        cond,
+                        dst: loop_end,
+                    },
+                    self.0.position,
+                );
+
+                for stmt in body {
+                    stmt.generate(ctx, scope, id)?;
+                }
+
+                step.generate(ctx, scope, id)?;
+
+                ctx.emit(InstructionKind::Jump(loop_start), self.0.position);
+                ctx.emit(InstructionKind::Label(loop_end), self.0.position);
+            }
+            StmtKind::Store {
+                size,
+                address,
+                value,
+            } => {
+                let address = address.generate(ctx, scope, id)?;
+                let value = value.generate(ctx, scope, id)?;
+                ctx.emit(
+                    InstructionKind::Store {
+                        size: size.into(),
+                        dst: address,
+                        src: value,
+                    },
+                    self.0.position,
+                );
             }
             StmtKind::Expression(expr) => {
                 expr.generate(ctx, scope, id)?;
             }
         }
+
         Ok(())
     }
 }

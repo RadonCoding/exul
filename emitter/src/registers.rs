@@ -1,14 +1,19 @@
 use crate::convention::Convention;
-use iced_x86::{
-    Register,
-    code_asm::{AsmRegister64, CodeAssembler, get_gpr32, get_gpr64, qword_ptr, rbp},
-};
+use iced_x86::{Register, code_asm::CodeLabel};
 use intermediate::{SymbolId, Value};
-use std::{collections::HashMap, error::Error};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Operand {
+    Register(Register),
+    Stack(i32),
+    Immediate(i64),
+    String(CodeLabel),
+}
 
 pub struct Registers {
-    /// Tracks which value/symbol currently resides in which register.
-    tracked: HashMap<Register, Value>,
+    /// Tracks which value currently resides in which register.
+    pub tracked: HashMap<Register, Value>,
 }
 
 impl Registers {
@@ -18,18 +23,24 @@ impl Registers {
         }
     }
 
-    pub fn find_value(&self, val: Value) -> Option<Register> {
-        self.tracked
-            .iter()
-            .find(|(_, v)| **v == val)
-            .map(|(r, _)| *r)
-    }
-
     pub fn track(&mut self, reg: Register, val: Value) {
+        if let Value::Symbol(s) = val {
+            self.tracked.retain(|r, v| {
+                if let Value::Symbol(id) = v {
+                    *r == reg || *id != s
+                } else {
+                    true
+                }
+            });
+        }
         self.tracked.insert(reg, val);
     }
 
-    /// Removes a symbol from tracking, typically when it is overwritten or dies.
+    pub fn invalidate(&mut self) {
+        self.tracked.clear();
+    }
+
+    /// Drops a single symbol from tracking when it is overwritten or dies.
     pub fn invalidate_symbol(&mut self, symbol: SymbolId) {
         self.tracked.retain(|_, v| {
             if let Value::Symbol(s) = v {
@@ -40,103 +51,71 @@ impl Registers {
         });
     }
 
-    /// Drops all caller-saved registers from the tracking to reflect callee clobbering.
+    /// Drops all caller-saved registers from tracking to reflect callee clobbering.
     pub fn invalidate_volatile<C: Convention>(&mut self, convention: &C) {
         let volatiles = convention.volatile_regs();
         self.tracked.retain(|reg, _| !volatiles.contains(reg));
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ValueLocation {
-    Register(Register),
-    Stack(i32),
-    Immediate(i64),
-}
+    /// Returns the first volatile register not currently holding a tracked value.
+    pub fn free<'a>(&self, volatiles: impl Iterator<Item = &'a Register>) -> Option<Register> {
+        volatiles.copied().find(|r| !self.tracked.contains_key(r))
+    }
 
-pub struct ValueContext<'a> {
-    pub allocs: &'a HashMap<SymbolId, Register>,
-    pub slots: &'a HashMap<SymbolId, i32>,
-    pub registers: &'a Registers,
-}
+    /// Picks a volatile symbol to evict, removes it from tracking, and returns its register and stack offset.
+    pub fn evict(
+        &mut self,
+        volatiles: &[Register],
+        slots: &HashMap<SymbolId, i32>,
+    ) -> (Register, i32) {
+        let (reg, slot) = self
+            .tracked
+            .iter()
+            .find_map(|(r, v)| {
+                if !volatiles.contains(r) {
+                    return None;
+                }
 
-impl<'a> ValueContext<'a> {
-    /// Resolves the current location of a value, prioritizing active registers over spill slots.
-    pub fn locate(&self, val: Value) -> ValueLocation {
+                if let Value::Symbol(s) = v {
+                    slots.get(s).map(|slot| (*r, *slot))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| unreachable!());
+
+        self.tracked.remove(&reg);
+
+        (reg, slot)
+    }
+
+    pub fn get_register_for_value(&self, val: Value) -> Option<Register> {
+        self.tracked
+            .iter()
+            .find(|(_, v)| **v == val)
+            .map(|(&r, _)| r)
+    }
+
+    /// Resolves where a value currently lives, preferring live register state over the stack.
+    pub fn locate(
+        &self,
+        val: Value,
+        slots: &HashMap<SymbolId, i32>,
+        data: &[CodeLabel],
+    ) -> Operand {
         match val {
-            Value::Constant(c) => ValueLocation::Immediate(c),
+            Value::Constant(c) => Operand::Immediate(c),
+            Value::String(id) => Operand::String(data[id]),
             Value::Symbol(s) => {
-                // Check if the value is already cached in a register from a previous load.
-                if let Some(reg) = self.registers.find_value(val) {
-                    return ValueLocation::Register(reg);
+                if let Some(reg) = self.get_register_for_value(Value::Symbol(s)) {
+                    return Operand::Register(reg);
                 }
-
-                // Check static allocation assignments.
-                if let Some(&reg) = self.allocs.get(&s) {
-                    return ValueLocation::Register(reg);
+                if let Some(&offset) = slots.get(&s) {
+                    return Operand::Stack(offset);
                 }
-
-                // Fall back to the stack spill slot.
-                if let Some(&offset) = self.slots.get(&s) {
-                    return ValueLocation::Stack(offset);
-                }
-
                 unreachable!()
             }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum LoadAction {
-    None,
-    Move(AsmRegister64),
-    LoadStack(i32),
-    LoadImmediate(i64),
-}
-
-/// Determines the necessary operation to get a value into a specific target register.
-pub fn plan_load(val: Value, target: Register, ctx: &ValueContext) -> LoadAction {
-    let location = ctx.locate(val);
-
-    match location {
-        ValueLocation::Register(r) if r == target => LoadAction::None,
-        ValueLocation::Register(r) => LoadAction::Move(get_gpr64(r).unwrap()),
-        ValueLocation::Stack(offset) => LoadAction::LoadStack(offset),
-        ValueLocation::Immediate(imm) => LoadAction::LoadImmediate(imm),
-    }
-}
-
-pub fn execute_load(
-    asm: &mut CodeAssembler,
-    action: LoadAction,
-    target: AsmRegister64,
-) -> Result<(), Box<dyn Error>> {
-    match action {
-        LoadAction::None => Ok(()),
-        LoadAction::Move(src) => {
-            asm.mov(target, src)?;
-            Ok(())
-        }
-        LoadAction::LoadStack(offset) => {
-            asm.mov(target, qword_ptr(rbp - offset))?;
-            Ok(())
-        }
-        LoadAction::LoadImmediate(imm) => {
-            if imm == 0 {
-                // Optimization: 'xor reg, reg' is smaller.
-                let reg = Into::<Register>::into(target);
-                let r32 = get_gpr32(reg.full_register32()).unwrap();
-                asm.xor(r32, r32)?;
-            } else if imm >= 0 && imm <= u32::MAX as i64 {
-                // Optimization: 32-bit MOV zero-extends to 64-bit, saving instruction bytes.
-                let reg = Into::<Register>::into(target);
-                let r32 = get_gpr32(reg.full_register32()).unwrap();
-                asm.mov(r32, imm as u32)?;
-            } else {
-                asm.mov(target, imm as u64)?;
-            }
-            Ok(())
+            _ => unreachable!(),
         }
     }
 }

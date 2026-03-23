@@ -29,6 +29,7 @@ impl<'a> Peephole<'a> {
                 .try_call_assign(&mut result, i)
                 .or_else(|| self.try_compare_branch(&mut result, i))
                 .or_else(|| self.try_remove_unreachable(&mut result, i))
+                .or_else(|| self.try_remove_redundant_jump(&mut result, i))
                 .or_else(|| self.try_remove_dead_store(&mut result, i));
 
             match consumed {
@@ -43,33 +44,6 @@ impl<'a> Peephole<'a> {
         }
 
         result
-    }
-
-    /// Removes instructions that define a symbol that is overwritten before it is ever read.
-    fn try_remove_dead_store(&self, _result: &mut Vec<Instruction>, i: usize) -> Option<usize> {
-        let current = &self.function.instructions[i];
-
-        let written = current.kind.written_symbols();
-
-        if written.len() != 1 {
-            return None;
-        }
-
-        let target = written[0];
-
-        for inst in self.function.instructions.iter().skip(i + 1) {
-            if inst.kind.read_symbols().contains(&target) {
-                return None;
-            }
-            if inst.kind.written_symbols().contains(&target) {
-                return Some(1);
-            }
-            if matches!(inst.kind, InstructionKind::Label(_)) {
-                return None;
-            }
-        }
-
-        Some(1)
     }
 
     /// Fuses a subroutine call directly into a destination symbol, bypassing an intermediate [`InstructionKind::Assign`].
@@ -111,7 +85,7 @@ impl<'a> Peephole<'a> {
         None
     }
 
-    /// Merges an [`InstructionKind::Eq`] comparison with its dependent [`InstructionKind::JumpIfFalse`] into a single branch.
+    /// Merges an [`InstructionKind::Eq`] or [`InstructionKind::NotEq`] comparison with its dependent [`InstructionKind::JumpIfFalse`] into a single branch.
     fn try_compare_branch(&self, result: &mut Vec<Instruction>, i: usize) -> Option<usize> {
         if i + 1 >= self.function.instructions.len() {
             return None;
@@ -120,27 +94,42 @@ impl<'a> Peephole<'a> {
         let current = &self.function.instructions[i];
         let next = &self.function.instructions[i + 1];
 
-        if let (
-            InstructionKind::Eq { dst, left, right },
-            InstructionKind::JumpIfFalse {
-                cond: Value::Symbol(s),
-                dst: label,
-            },
-        ) = (&current.kind, &next.kind)
+        if let InstructionKind::JumpIfFalse {
+            cond: Value::Symbol(s),
+            dst: label,
+        } = &next.kind
         {
-            // Fuse if the branch condition is the result of the equality check.
-            if dst == s && !self.symbol_read_after(*dst, i + 2) {
-                result.push(Instruction {
-                    kind: InstructionKind::JumpIfNotEq {
-                        left: *left,
-                        right: *right,
-                        dst: *label,
-                    },
-                    offset: current.offset,
-                });
-                return Some(2);
+            match &current.kind {
+                InstructionKind::Eq { dst, left, right }
+                    if dst == s && !self.symbol_read_after(*dst, i + 2) =>
+                {
+                    result.push(Instruction {
+                        kind: InstructionKind::JumpIfNotEq {
+                            left: *left,
+                            right: *right,
+                            dst: *label,
+                        },
+                        offset: current.offset,
+                    });
+                    return Some(2);
+                }
+                InstructionKind::NotEq { dst, left, right }
+                    if dst == s && !self.symbol_read_after(*dst, i + 2) =>
+                {
+                    result.push(Instruction {
+                        kind: InstructionKind::JumpIfEq {
+                            left: *left,
+                            right: *right,
+                            dst: *label,
+                        },
+                        offset: current.offset,
+                    });
+                    return Some(2);
+                }
+                _ => {}
             }
         }
+
         None
     }
 
@@ -164,6 +153,56 @@ impl<'a> Peephole<'a> {
         }
 
         None
+    }
+
+    /// Eliminates an unconditional [`InstructionKind::Jump`] whose target is the immediately following instruction.
+    fn try_remove_redundant_jump(&self, _result: &mut Vec<Instruction>, i: usize) -> Option<usize> {
+        let current = &self.function.instructions[i];
+
+        if let InstructionKind::Jump(dst) = &current.kind {
+            let mut j = i + 1;
+            while j < self.function.instructions.len() {
+                match &self.function.instructions[j].kind {
+                    InstructionKind::Label(id) if id == dst => return Some(1),
+                    InstructionKind::Label(_) => j += 1,
+                    _ => break,
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Removes instructions that define a symbol that is overwritten before it is ever read.
+    fn try_remove_dead_store(&self, _result: &mut Vec<Instruction>, i: usize) -> Option<usize> {
+        let current = &self.function.instructions[i];
+
+        // Skip instructions that have side-effects and are not simple stores.
+        if matches!(current.kind, InstructionKind::Call { .. }) {
+            return None;
+        }
+
+        let written = current.kind.written_symbols();
+
+        if written.len() != 1 {
+            return None;
+        }
+
+        let target = written[0];
+
+        for inst in self.function.instructions.iter().skip(i + 1) {
+            if inst.kind.read_symbols().contains(&target) {
+                return None;
+            }
+            if inst.kind.written_symbols().contains(&target) {
+                return Some(1);
+            }
+            if matches!(inst.kind, InstructionKind::Label(_)) {
+                return None;
+            }
+        }
+
+        Some(1)
     }
 
     /// Scans subsequent instructions to determine if a [`SymbolId`] is read before being overwritten.

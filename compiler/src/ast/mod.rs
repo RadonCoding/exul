@@ -11,7 +11,7 @@ use std::error::Error;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node<T> {
     pub kind: T,
-    pub offset: usize,
+    pub position: usize,
 }
 
 #[derive(Debug)]
