@@ -30,6 +30,14 @@ pub enum TokenKind {
     Minus,
     StarEqual,
     Star,
+    AmpersandEqual,
+    Ampersand,
+    PipeEqual,
+    Pipe,
+    CaretEqual,
+    Caret,
+    ShiftLeft,
+    ShiftRight,
     Bang,
     LParen,
     RParen,
@@ -254,6 +262,38 @@ static RULES: &[Rule] = &[
     Rule {
         matcher: Matcher::Fixed(b"*"),
         kind: TokenKind::Star,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"&="),
+        kind: TokenKind::AmpersandEqual,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"&"),
+        kind: TokenKind::Ampersand,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"|="),
+        kind: TokenKind::PipeEqual,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"|"),
+        kind: TokenKind::Pipe,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"^="),
+        kind: TokenKind::CaretEqual,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"^"),
+        kind: TokenKind::Caret,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"<<"),
+        kind: TokenKind::ShiftLeft,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b">>"),
+        kind: TokenKind::ShiftRight,
     },
     Rule {
         matcher: Matcher::Fixed(b"!"),

@@ -523,6 +523,11 @@ impl<C: Convention> Emitter<C> {
             InstructionKind::Add { dst, left, right } => self.compile_add(ctx, dst, left, right),
             InstructionKind::Sub { dst, left, right } => self.compile_sub(ctx, dst, left, right),
             InstructionKind::Mul { dst, left, right } => self.compile_mul(ctx, dst, left, right),
+            InstructionKind::And { dst, left, right } => self.compile_and(ctx, dst, left, right),
+            InstructionKind::Or { dst, left, right } => self.compile_or(ctx, dst, left, right),
+            InstructionKind::Xor { dst, left, right } => self.compile_xor(ctx, dst, left, right),
+            InstructionKind::Shl { dst, left, right } => self.compile_shl(ctx, dst, left, right),
+            InstructionKind::Shr { dst, left, right } => self.compile_shr(ctx, dst, left, right),
             InstructionKind::Assign { dst, src } => self.compile_assign(ctx, dst, src),
             InstructionKind::Call { dst, callee, args } => {
                 self.compile_call(ctx, dst, callee, args)

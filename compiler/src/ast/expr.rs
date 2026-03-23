@@ -56,6 +56,11 @@ pub enum BinaryOp {
     Add,
     Sub,
     Mul,
+    And,
+    Or,
+    Xor,
+    Shl,
+    Shr,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +73,9 @@ impl BinaryOp {
         match kind {
             TokenKind::PlusEqual => Some((BinaryOp::Add, 1)),
             TokenKind::MinusEqual => Some((BinaryOp::Sub, 1)),
+            TokenKind::AmpersandEqual => Some((BinaryOp::And, 1)),
+            TokenKind::PipeEqual => Some((BinaryOp::Or, 1)),
+            TokenKind::CaretEqual => Some((BinaryOp::Xor, 1)),
             _ => None,
         }
     }
@@ -83,6 +91,11 @@ impl BinaryOp {
             TokenKind::Plus => Some((BinaryOp::Add, 4)),
             TokenKind::Minus => Some((BinaryOp::Sub, 4)),
             TokenKind::Star => Some((BinaryOp::Mul, 5)),
+            TokenKind::Ampersand => Some((BinaryOp::And, 5)),
+            TokenKind::Pipe => Some((BinaryOp::Or, 5)),
+            TokenKind::Caret => Some((BinaryOp::Xor, 5)),
+            TokenKind::ShiftLeft => Some((BinaryOp::Shl, 6)),
+            TokenKind::ShiftRight => Some((BinaryOp::Shr, 6)),
             _ => None,
         }
     }

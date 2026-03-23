@@ -15,8 +15,7 @@ impl<'a> Peephole<'a> {
     }
 
     fn run(&mut self) {
-        let optimized = self.optimize_instructions();
-        self.function.instructions = optimized;
+        self.function.instructions = self.optimize_instructions();
     }
 
     fn optimize_instructions(&self) -> Vec<Instruction> {
@@ -29,6 +28,7 @@ impl<'a> Peephole<'a> {
                 .or_else(|| self.try_compare_branch(&mut result, i))
                 .or_else(|| self.try_remove_unreachable(&mut result, i))
                 .or_else(|| self.try_remove_redundant_jump(&mut result, i))
+                .or_else(|| self.try_multiply_to_shift(&mut result, i))
                 .or_else(|| self.try_remove_dead_store(&mut result, i));
 
             match consumed {
@@ -167,6 +167,31 @@ impl<'a> Peephole<'a> {
                     _ => break,
                 }
             }
+        }
+
+        None
+    }
+
+    /// Replaces a [`InstructionKind::Mul`] by a power-of-two constant with a [`InstructionKind::Shl`].
+    fn try_multiply_to_shift(&self, result: &mut Vec<Instruction>, i: usize) -> Option<usize> {
+        let current = &self.function.instructions[i];
+
+        if let InstructionKind::Mul { dst, left, right } = &current.kind {
+            let shift = match right {
+                Value::Constant(n) if *n > 0 && n.count_ones() == 1 => n.trailing_zeros() as i64,
+                _ => return None,
+            };
+
+            result.push(Instruction {
+                kind: InstructionKind::Shl {
+                    dst: *dst,
+                    left: *left,
+                    right: Value::Constant(shift),
+                },
+                offset: current.offset,
+            });
+
+            return Some(1);
         }
 
         None

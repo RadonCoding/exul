@@ -30,6 +30,8 @@ struct Args {
     ast: bool,
     #[arg(long)]
     ir: bool,
+    #[arg(long)]
+    asm: bool,
 }
 
 struct Symbols(HashMap<u64, String>);
@@ -219,19 +221,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut module = lower::generate(tree)?;
     elapsed += start.elapsed();
 
-    if args.ir {
-        println!("PRE-OPTIMIZATION:\n{:#?}", module);
-    }
-
     let start = Instant::now();
     let assembly = emitter::emit::<MicrosoftX64>(args.ip, &mut module)?;
     elapsed += start.elapsed();
 
     if args.ir {
-        println!("POST-OPTIMIZATION:\n{:#?}", module);
+        for f in &module.functions {
+            println!("{}:", f.name);
+            for inst in &f.instructions {
+                println!("  {:?}", inst.kind);
+            }
+            println!();
+        }
     }
 
-    dump(&assembly, &module, args.ip);
+    if args.asm {
+        dump(&assembly, &module, args.ip);
+    }
 
     println!(
         "Compilation took {}.{:03} seconds",

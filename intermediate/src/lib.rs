@@ -1,15 +1,17 @@
+use std::fmt;
+
 pub mod symbols;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionId(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymbolId(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LabelId(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Value {
     Function(FunctionId),
     Symbol(SymbolId),
@@ -127,6 +129,31 @@ pub enum InstructionKind {
         left: Value,
         right: Value,
     },
+    And {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Or {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Xor {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Shl {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
+    Shr {
+        dst: SymbolId,
+        left: Value,
+        right: Value,
+    },
     Assign {
         dst: SymbolId,
         src: Value,
@@ -203,6 +230,11 @@ impl InstructionKind {
             | InstructionKind::Add { left, right, .. }
             | InstructionKind::Sub { left, right, .. }
             | InstructionKind::Mul { left, right, .. }
+            | InstructionKind::And { left, right, .. }
+            | InstructionKind::Or { left, right, .. }
+            | InstructionKind::Xor { left, right, .. }
+            | InstructionKind::Shl { left, right, .. }
+            | InstructionKind::Shr { left, right, .. }
             | InstructionKind::JumpIfEq { left, right, .. }
             | InstructionKind::JumpIfNotEq { left, right, .. } => {
                 symbols.extend(left.symbols());
@@ -249,6 +281,11 @@ impl InstructionKind {
             | InstructionKind::Add { dst, .. }
             | InstructionKind::Sub { dst, .. }
             | InstructionKind::Mul { dst, .. }
+            | InstructionKind::And { dst, .. }
+            | InstructionKind::Or { dst, .. }
+            | InstructionKind::Xor { dst, .. }
+            | InstructionKind::Shl { dst, .. }
+            | InstructionKind::Shr { dst, .. }
             | InstructionKind::Assign { dst, .. }
             | InstructionKind::Call { dst, .. }
             | InstructionKind::Load { dst, .. }
@@ -352,5 +389,34 @@ impl Context {
         let i = self.strings.len();
         self.strings.push(s);
         i
+    }
+}
+
+impl fmt::Debug for SymbolId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "symbol{}", self.0)
+    }
+}
+
+impl fmt::Debug for FunctionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "f{}", self.0)
+    }
+}
+
+impl fmt::Debug for LabelId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "L{}", self.0)
+    }
+}
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Symbol(s) => write!(f, "symbol{}", s.0),
+            Value::Constant(c) => write!(f, "{}", c),
+            Value::Function(id) => write!(f, "function{}", id.0),
+            Value::String(id) => write!(f, "string{}", id),
+        }
     }
 }

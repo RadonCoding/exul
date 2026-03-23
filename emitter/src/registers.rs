@@ -13,7 +13,7 @@ pub enum Operand {
 
 pub struct Registers {
     /// Tracks which value currently resides in which register.
-    pub tracked: HashMap<Register, Value>,
+    tracked: HashMap<Register, Value>,
 }
 
 impl Registers {
@@ -41,14 +41,19 @@ impl Registers {
     }
 
     /// Drops a single symbol from tracking when it is overwritten or dies.
-    pub fn invalidate_symbol(&mut self, symbol: SymbolId) {
+    pub fn invalidate_symbol(&mut self, sym: SymbolId) {
         self.tracked.retain(|_, v| {
             if let Value::Symbol(s) = v {
-                *s != symbol
+                *s != sym
             } else {
                 true
             }
         });
+    }
+
+    /// Drops a specific register from tracking when it is about to be clobbered.
+    pub fn invalidate_register(&mut self, reg: Register) {
+        self.tracked.remove(&reg);
     }
 
     /// Drops all caller-saved registers from tracking to reflect callee clobbering.

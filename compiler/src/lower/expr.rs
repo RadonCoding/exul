@@ -129,6 +129,21 @@ impl Generate for Expr<'_> {
                     BinaryOp::Mul => {
                         ctx.emit(InstructionKind::Mul { dst, left, right }, self.0.position)
                     }
+                    BinaryOp::And => {
+                        ctx.emit(InstructionKind::And { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Or => {
+                        ctx.emit(InstructionKind::Or { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Xor => {
+                        ctx.emit(InstructionKind::Xor { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Shl => {
+                        ctx.emit(InstructionKind::Shl { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Shr => {
+                        ctx.emit(InstructionKind::Shr { dst, left, right }, self.0.position)
+                    }
                 }
 
                 Ok(Value::Symbol(dst))
