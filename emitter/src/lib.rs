@@ -466,6 +466,13 @@ impl<C: Convention> Emitter<C> {
             registers: Registers::new(),
         };
 
+        // Seed register tracking with the arguments
+        for (i, &sym) in function.params.iter().enumerate() {
+            if let Some(arg_reg) = self.convention.argument_reg(i) {
+                ctx.registers.track(arg_reg, Value::Symbol(sym));
+            }
+        }
+
         self.allocate(&mut ctx, &function.params);
 
         let shadow = self.convention.shadow_space() as i32;
