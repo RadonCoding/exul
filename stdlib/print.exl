@@ -1,6 +1,5 @@
 fn print(s) {
-    for (i = 0; *byte(s + i) != 0; i += 1) {
-    }
+    for i = 0; *byte(s + i) != 0; i += 1;
     handle = kernel32!GetStdHandle(-11)
     return kernel32!WriteFile(handle, s, i, 0, 0)
 }

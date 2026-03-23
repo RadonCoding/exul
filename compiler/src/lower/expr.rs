@@ -16,6 +16,25 @@ fn parse_number(v: &[u8]) -> Result<i64, Box<dyn std::error::Error>> {
     }
 }
 
+fn parse_char(v: &[u8]) -> Result<i64, Box<dyn Error>> {
+    if v.starts_with(b"\\") && v.len() > 1 {
+        let escaped = match v[1] {
+            b'0' => 0,
+            b'n' => b'\n',
+            b'r' => b'\r',
+            b't' => b'\t',
+            b'\\' => b'\\',
+            b'\'' => b'\'',
+            _ => return Err(format!("Unknown escape sequence \\{}", v[1] as char).into()),
+        };
+        return Ok(escaped as i64);
+    }
+
+    v.first()
+        .map(|&b| b as i64)
+        .ok_or_else(|| "Empty character literal".into())
+}
+
 impl Generate for Expr<'_> {
     type Output = Value;
 
@@ -27,6 +46,7 @@ impl Generate for Expr<'_> {
     ) -> Result<Self::Output, Box<dyn Error>> {
         match self.0.kind {
             ExprKind::Number(v) => Ok(Value::Constant(parse_number(v)?)),
+            ExprKind::Char(v) => Ok(Value::Constant(parse_char(v)?)),
             ExprKind::String(v) => {
                 let s = String::from_utf8_lossy(v).to_string();
                 Ok(Value::String(ctx.string(s)))
@@ -40,6 +60,58 @@ impl Generate for Expr<'_> {
                     )
                     .into()
                 })
+            }
+            ExprKind::Binary { left, op, right } => {
+                let left = left.generate(ctx, scope, id)?;
+                let right = right.generate(ctx, scope, id)?;
+                let dst = ctx.next_symbol();
+
+                match op {
+                    BinaryOp::Equals => {
+                        ctx.emit(InstructionKind::Eq { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::NotEquals => {
+                        ctx.emit(InstructionKind::NotEq { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Lte => {
+                        ctx.emit(InstructionKind::Lte { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Gte => {
+                        ctx.emit(InstructionKind::Gte { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Lt => {
+                        ctx.emit(InstructionKind::Lt { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Gt => {
+                        ctx.emit(InstructionKind::Gt { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Add => {
+                        ctx.emit(InstructionKind::Add { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Sub => {
+                        ctx.emit(InstructionKind::Sub { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Mul => {
+                        ctx.emit(InstructionKind::Mul { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::And => {
+                        ctx.emit(InstructionKind::And { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Or => {
+                        ctx.emit(InstructionKind::Or { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Xor => {
+                        ctx.emit(InstructionKind::Xor { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Shl => {
+                        ctx.emit(InstructionKind::Shl { dst, left, right }, self.0.position)
+                    }
+                    BinaryOp::Shr => {
+                        ctx.emit(InstructionKind::Shr { dst, left, right }, self.0.position)
+                    }
+                }
+
+                Ok(Value::Symbol(dst))
             }
             ExprKind::Unary {
                 op: UnaryOp::Neg,
@@ -96,57 +168,64 @@ impl Generate for Expr<'_> {
 
                 Err(format!("Cannot assign to '{}' at offset {}", name, self.0.position).into())
             }
-            ExprKind::Binary { left, op, right } => {
-                let left = left.generate(ctx, scope, id)?;
-                let right = right.generate(ctx, scope, id)?;
-                let dst = ctx.next_symbol();
-
-                match op {
-                    BinaryOp::Equals => {
-                        ctx.emit(InstructionKind::Eq { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::NotEquals => {
-                        ctx.emit(InstructionKind::NotEq { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Lte => {
-                        ctx.emit(InstructionKind::Lte { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Gte => {
-                        ctx.emit(InstructionKind::Gte { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Lt => {
-                        ctx.emit(InstructionKind::Lt { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Gt => {
-                        ctx.emit(InstructionKind::Gt { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Add => {
-                        ctx.emit(InstructionKind::Add { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Sub => {
-                        ctx.emit(InstructionKind::Sub { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Mul => {
-                        ctx.emit(InstructionKind::Mul { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::And => {
-                        ctx.emit(InstructionKind::And { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Or => {
-                        ctx.emit(InstructionKind::Or { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Xor => {
-                        ctx.emit(InstructionKind::Xor { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Shl => {
-                        ctx.emit(InstructionKind::Shl { dst, left, right }, self.0.position)
-                    }
-                    BinaryOp::Shr => {
-                        ctx.emit(InstructionKind::Shr { dst, left, right }, self.0.position)
-                    }
+            ExprKind::Prefix { dst, op } => {
+                let name = String::from_utf8_lossy(dst).to_string();
+                let lhs = scope.resolve(&name).ok_or_else(|| {
+                    format!(
+                        "Undeclared identifier '{}' at offset {}",
+                        name, self.0.position
+                    )
+                })?;
+                if let Value::Symbol(s) = lhs {
+                    let kind = match op {
+                        BinaryOp::Add => InstructionKind::Add {
+                            dst: s,
+                            left: lhs,
+                            right: Value::Constant(1),
+                        },
+                        BinaryOp::Sub => InstructionKind::Sub {
+                            dst: s,
+                            left: lhs,
+                            right: Value::Constant(1),
+                        },
+                        _ => unreachable!(),
+                    };
+                    ctx.emit(kind, self.0.position);
+                    return Ok(Value::Symbol(s));
                 }
-
-                Ok(Value::Symbol(dst))
+                Err(format!("Cannot assign to '{}' at offset {}", name, self.0.position).into())
+            }
+            ExprKind::Postfix { dst, op } => {
+                let name = String::from_utf8_lossy(dst).to_string();
+                let lhs = scope.resolve(&name).ok_or_else(|| {
+                    format!(
+                        "Undeclared identifier '{}' at offset {}",
+                        name, self.0.position
+                    )
+                })?;
+                if let Value::Symbol(s) = lhs {
+                    let old = ctx.next_symbol();
+                    ctx.emit(
+                        InstructionKind::Assign { dst: old, src: lhs },
+                        self.0.position,
+                    );
+                    let kind = match op {
+                        BinaryOp::Add => InstructionKind::Add {
+                            dst: s,
+                            left: lhs,
+                            right: Value::Constant(1),
+                        },
+                        BinaryOp::Sub => InstructionKind::Sub {
+                            dst: s,
+                            left: lhs,
+                            right: Value::Constant(1),
+                        },
+                        _ => unreachable!(),
+                    };
+                    ctx.emit(kind, self.0.position);
+                    return Ok(Value::Symbol(old));
+                }
+                Err(format!("Cannot assign to '{}' at offset {}", name, self.0.position).into())
             }
             ExprKind::Call { callee, args } => {
                 let name = String::from_utf8_lossy(callee).to_string();

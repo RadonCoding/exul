@@ -1,8 +1,18 @@
-fn __resolve_forward__(address) {    
-    for (i = 0; *byte(address + i) != 0; i += 1) {
-        if *byte(address + i) == 46 {
+fn __resolve_forward__(address) {
+    i = 0
+
+    loop {
+        c = *byte(address + i)
+        
+        if c == '\0' {
+            break
+        }
+
+        if c == '.' {
             return __resolve__(address, address + i + 1)
         }
+
+        i += 1
     }
     return 0
 }
@@ -18,7 +28,7 @@ fn __get_export__(image, name) {
     address_of_name_ordinals = image + *dword(exports + 0x24) // PWORD IMAGE_EXPORT_DIRECTORY->AddressOfNameOrdinals
     address_of_functions = image + *dword(exports + 0x1C)     // PDWORD IMAGE_EXPORT_DIRECTORY->AddressOfFunctions
 
-    for (i = 0; i != number_of_names; i += 1) {
+    for i = 0; i < number_of_names; i++ {
         current = image + *dword(address_of_names + i * 4)
 
         if __strcmp_ansi_ansi__(current, name) {
@@ -39,19 +49,25 @@ fn __get_export__(image, name) {
 }
 
 fn __to_upper__(c) {
-    if c >= 97 {
-        if c <= 122 {
-            return c - 32
+    if c >= 'a' {
+        if c <= 'z' {
+            return c - ' '
         }
     }
     return c
 }
 
 fn __strcmp_unicode_ansi__(unicode, ansi) {
-    for (i = 0; *byte(ansi + i) != 0; i += 1) {
-        a = *word(unicode + i + i)
+    i = 0
 
-        if a == 46 {
+    loop {
+        if *byte(ansi + i) == '\0' {
+            break
+        }
+
+        a = *word(unicode + i * 2)
+
+        if a == '.' {
             return 0
         }
 
@@ -61,15 +77,17 @@ fn __strcmp_unicode_ansi__(unicode, ansi) {
         if a != b {
             return 0
         }
+
+        i += 1
     }
 
-    a = *word(unicode + i + i)
+    a = *word(unicode + i * 2)
 
-    if a == 0 {
+    if a == '\0' {
         return 1
     }
 
-    if a == 46 {
+    if a == '.' {
         return 1
     }
 
@@ -77,15 +95,23 @@ fn __strcmp_unicode_ansi__(unicode, ansi) {
 }
 
 fn __strcmp_ansi_ansi__(a, b) {
-    for (i = 0; *byte(a + i) != 0; i += 1) {
+    i = 0
+
+    loop {
+        if *byte(a + i) == '\0' {
+            break
+        }
+
         ca = *byte(a + i)
         cb = *byte(b + i)
 
         if ca != cb {
             return 0
         }
+
+        i += 1
     }
-    return *byte(b + i) == 0
+    return *byte(b + i) == '\0'
 }
 
 fn __resolve__(module, function) {
@@ -95,7 +121,7 @@ fn __resolve__(module, function) {
     
     entry = head
 
-    for (i = 0; i == 0; i += 0) {
+    loop {
         current = *qword(entry + 0x60) // PWSTR BaseDllName.Buffer
         
         if __strcmp_unicode_ansi__(current, module) {

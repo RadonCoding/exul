@@ -330,6 +330,7 @@ pub struct Context {
     pub instructions: Vec<Instruction>,
     pub strings: Vec<String>,
     pub imports: Vec<Import>,
+    pub loops: Vec<LabelId>,
     pub functions: usize,
     pub symbols: usize,
     pub labels: usize,
@@ -349,6 +350,7 @@ impl Context {
             imports: Vec::new(),
             strings: Vec::new(),
             functions: reserved,
+            loops: Vec::new(),
             symbols: 0,
             labels: 0,
         }

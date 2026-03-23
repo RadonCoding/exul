@@ -27,6 +27,8 @@ pub enum StmtKind<'a> {
         step: Box<Stmt<'a>>,
         body: Vec<Stmt<'a>>,
     },
+    Loop(Vec<Stmt<'a>>),
+    Break,
     Store {
         size: Memory,
         address: Expr<'a>,
@@ -106,8 +108,6 @@ impl<'a> Parse<'a> for Stmt<'a> {
         }
 
         if parser.match_token(TokenKind::For) {
-            parser.consume(TokenKind::LParen, "'('")?;
-
             let init = Box::new(Stmt::parse_clause(parser)?);
             parser.consume(TokenKind::Semicolon, "';'")?;
 
@@ -115,9 +115,21 @@ impl<'a> Parse<'a> for Stmt<'a> {
             parser.consume(TokenKind::Semicolon, "';'")?;
 
             let step = Box::new(Stmt::parse_clause(parser)?);
-            parser.consume(TokenKind::RParen, "')'")?;
 
-            let body = Self::parse_block(parser)?;
+            let body = if parser.match_token(TokenKind::LBrace) {
+                let mut stmts = Vec::new();
+
+                while !parser.check(TokenKind::RBrace) && !parser.is_eof() {
+                    stmts.push(Stmt::parse(parser)?);
+                }
+
+                parser.consume(TokenKind::RBrace, "'}'")?;
+                stmts
+            } else if parser.match_token(TokenKind::Semicolon) {
+                Vec::new()
+            } else {
+                return Err(parser.expected("'{' or ';'"));
+            };
 
             return Ok(Stmt(Node {
                 kind: StmtKind::For {
@@ -126,6 +138,21 @@ impl<'a> Parse<'a> for Stmt<'a> {
                     step,
                     body,
                 },
+                position,
+            }));
+        }
+
+        if parser.match_token(TokenKind::Loop) {
+            let body = Stmt::parse_block(parser)?;
+            return Ok(Stmt(Node {
+                kind: StmtKind::Loop(body),
+                position,
+            }));
+        }
+
+        if parser.match_token(TokenKind::Break) {
+            return Ok(Stmt(Node {
+                kind: StmtKind::Break,
                 position,
             }));
         }

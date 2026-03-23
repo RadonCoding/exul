@@ -3,42 +3,52 @@ use std::error::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
     Ignore,
+    // Keywords
     Function,
     Return,
     If,
     Else,
     For,
+    Loop,
+    Break,
     Gs,
     Fs,
     Byte,
     Word,
     Dword,
     Qword,
-    Identifier,
+    // Literals
     Number,
+    Char,
     String,
+    Identifier,
+    // Multi-character operators
     Equals,
     NotEquals,
     LessEqual,
     GreaterEqual,
+    ShiftLeft,
+    ShiftRight,
+    PlusEqual,
+    PlusPlus,
+    MinusEqual,
+    MinusMinus,
+    StarEqual,
+    AmpersandEqual,
+    PipeEqual,
+    CaretEqual,
+    // Single-character operators
     Less,
     Greater,
     Equal,
-    PlusEqual,
     Plus,
-    MinusEqual,
     Minus,
-    StarEqual,
     Star,
-    AmpersandEqual,
     Ampersand,
-    PipeEqual,
     Pipe,
-    CaretEqual,
     Caret,
-    ShiftLeft,
-    ShiftRight,
     Bang,
+    // Punctuation
     LParen,
     RParen,
     LBrace,
@@ -80,19 +90,6 @@ fn match_pattern(input: &[u8], pattern: &[u8]) -> Option<(usize, usize)> {
     Some((pattern.len(), pattern.len()))
 }
 
-fn match_identifier(input: &[u8]) -> Option<(usize, usize)> {
-    let first = input.first()?;
-    if matches!(first, b'a'..=b'z' | b'A'..=b'Z' | b'_') {
-        let len = input
-            .iter()
-            .take_while(|&&b| matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_'))
-            .count();
-        Some((len, len))
-    } else {
-        None
-    }
-}
-
 fn match_number(input: &[u8]) -> Option<(usize, usize)> {
     if input.starts_with(b"0x") {
         let len = input[2..]
@@ -119,6 +116,36 @@ fn match_string(input: &[u8]) -> Option<(usize, usize)> {
             .iter()
             .position(|&b| b == b'"')
             .map(|pos| (pos + 2, pos))
+    } else {
+        None
+    }
+}
+
+fn match_char(input: &[u8]) -> Option<(usize, usize)> {
+    if !matches!(input.first()?, b'\'') {
+        return None;
+    }
+
+    if input.len() >= 4 && input[1] == b'\\' {
+        if input[3] == b'\'' {
+            return Some((4, 2));
+        }
+    } else if input.len() >= 3 && input[2] == b'\'' {
+        return Some((3, 1));
+    }
+
+    None
+}
+
+fn match_identifier(input: &[u8]) -> Option<(usize, usize)> {
+    let first = input.first()?;
+
+    if matches!(first, b'a'..=b'z' | b'A'..=b'Z' | b'_') {
+        let len = input
+            .iter()
+            .take_while(|&&b| matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_'))
+            .count();
+        Some((len, len))
     } else {
         None
     }
@@ -172,6 +199,14 @@ static RULES: &[Rule] = &[
         kind: TokenKind::For,
     },
     Rule {
+        matcher: Matcher::Fixed(b"loop"),
+        kind: TokenKind::Loop,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"break"),
+        kind: TokenKind::Break,
+    },
+    Rule {
         matcher: Matcher::Fixed(b"gs"),
         kind: TokenKind::Gs,
     },
@@ -199,6 +234,10 @@ static RULES: &[Rule] = &[
     Rule {
         matcher: Matcher::Dynamic(match_number),
         kind: TokenKind::Number,
+    },
+    Rule {
+        matcher: Matcher::Dynamic(match_char),
+        kind: TokenKind::Char,
     },
     Rule {
         matcher: Matcher::Dynamic(match_string),
@@ -238,8 +277,16 @@ static RULES: &[Rule] = &[
         kind: TokenKind::PlusEqual,
     },
     Rule {
+        matcher: Matcher::Fixed(b"++"),
+        kind: TokenKind::PlusPlus,
+    },
+    Rule {
         matcher: Matcher::Fixed(b"-="),
         kind: TokenKind::MinusEqual,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"--"),
+        kind: TokenKind::MinusMinus,
     },
     Rule {
         matcher: Matcher::Fixed(b"*="),
@@ -341,7 +388,7 @@ pub fn tokenize<'a>(input: &'a [u8]) -> Result<Vec<Token<'a>>, Box<dyn Error>> {
 
             if let Some((total_len, value_len)) = res {
                 if !matches!(rule.kind, TokenKind::Ignore) {
-                    let start_skip = if matches!(rule.kind, TokenKind::String) {
+                    let start_skip = if matches!(rule.kind, TokenKind::String | TokenKind::Char) {
                         1
                     } else {
                         0

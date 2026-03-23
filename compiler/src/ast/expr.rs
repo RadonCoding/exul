@@ -14,17 +14,26 @@ pub enum ExprKind<'a> {
         op: BinaryOp,
         right: Box<Expr<'a>>,
     },
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expr<'a>>,
+    },
     Compound {
         dst: &'a [u8],
         op: BinaryOp,
         src: Box<Expr<'a>>,
     },
-    Unary {
-        op: UnaryOp,
-        expr: Box<Expr<'a>>,
+    Prefix {
+        dst: &'a [u8],
+        op: BinaryOp,
+    },
+    Postfix {
+        dst: &'a [u8],
+        op: BinaryOp,
     },
     Identifier(&'a [u8]),
     Number(&'a [u8]),
+    Char(&'a [u8]),
     String(&'a [u8]),
     Call {
         callee: &'a [u8],
@@ -108,14 +117,35 @@ impl<'a> Expr<'a> {
     fn parse_primary(parser: &mut Parser<'a>) -> Result<Self, Box<dyn Error>> {
         let position = parser.peek().start;
 
-        // Grouped expression
+        if matches!(
+            parser.peek().kind,
+            TokenKind::PlusPlus | TokenKind::MinusMinus
+        ) {
+            let op = if parser.peek().kind == TokenKind::PlusPlus {
+                BinaryOp::Add
+            } else {
+                BinaryOp::Sub
+            };
+
+            parser.advance();
+
+            let inner = Expr::parse_primary(parser)?;
+
+            if let ExprKind::Identifier(dst) = inner.0.kind {
+                return Ok(Expr(Node {
+                    position,
+                    kind: ExprKind::Prefix { dst, op },
+                }));
+            }
+            return Err(parser.expected("identifier"));
+        }
+
         if parser.match_token(TokenKind::LParen) {
             let inner = Expr::parse(parser)?;
             parser.consume(TokenKind::RParen, "')'")?;
             return Ok(inner);
         }
 
-        // Unary negation
         if parser.match_token(TokenKind::Minus) {
             let expr = Expr::parse_primary(parser)?;
             return Ok(Expr(Node {
@@ -127,10 +157,16 @@ impl<'a> Expr<'a> {
             }));
         }
 
-        // Literals
         if parser.match_token(TokenKind::Number) {
             return Ok(Expr(Node {
                 kind: ExprKind::Number(parser.previous().value),
+                position,
+            }));
+        }
+
+        if parser.match_token(TokenKind::Char) {
+            return Ok(Expr(Node {
+                kind: ExprKind::Char(parser.previous().value),
                 position,
             }));
         }
@@ -142,7 +178,6 @@ impl<'a> Expr<'a> {
             }));
         }
 
-        // Segment registers
         if parser.match_token(TokenKind::Gs) || parser.match_token(TokenKind::Fs) {
             let seg = if parser.previous().kind == TokenKind::Gs {
                 Segment::Gs
@@ -161,7 +196,6 @@ impl<'a> Expr<'a> {
             }));
         }
 
-        // Memory dereference: *byte(...), *word(...), *dword(...), *qword(...)
         if parser.match_token(TokenKind::Star) {
             let size = match parser.peek().kind {
                 TokenKind::Byte => {
@@ -183,22 +217,20 @@ impl<'a> Expr<'a> {
                 _ => return Err(parser.expected("memory size")),
             };
             parser.consume(TokenKind::LParen, "'('")?;
-            let addr = Expr::parse(parser)?;
+            let address = Expr::parse(parser)?;
             parser.consume(TokenKind::RParen, "')'")?;
             return Ok(Expr(Node {
                 kind: ExprKind::Load {
                     size,
-                    address: Box::new(addr),
+                    address: Box::new(address),
                 },
                 position,
             }));
         }
 
-        // Identifiers, calls, and imports
         if parser.match_token(TokenKind::Identifier) {
             let id = parser.previous().value;
 
-            // Import: module!function(args)
             if parser.match_token(TokenKind::Bang) {
                 let function = parser
                     .consume(TokenKind::Identifier, "function name")?
@@ -216,7 +248,6 @@ impl<'a> Expr<'a> {
                 }));
             }
 
-            // Call: name(args)
             if parser.match_token(TokenKind::LParen) {
                 let args = parse_args(parser)?;
                 parser.consume(TokenKind::RParen, "')'")?;
@@ -236,7 +267,8 @@ impl<'a> Expr<'a> {
     }
 
     fn parse_precedence(parser: &mut Parser<'a>, minimum: i32) -> Result<Self, Box<dyn Error>> {
-        let offset = parser.peek().start;
+        let position = parser.peek().start;
+
         let mut left = Self::parse_primary(parser)?;
 
         loop {
@@ -246,11 +278,14 @@ impl<'a> Expr<'a> {
                 if precedence < minimum {
                     break;
                 }
+
                 parser.advance();
+
                 let src = Self::parse_precedence(parser, precedence)?;
+
                 if let ExprKind::Identifier(dst) = left.0.kind {
                     left = Expr(Node {
-                        position: offset,
+                        position,
                         kind: ExprKind::Compound {
                             dst,
                             op,
@@ -265,10 +300,13 @@ impl<'a> Expr<'a> {
                 if precedence < minimum {
                     break;
                 }
+
                 parser.advance();
+
                 let right = Self::parse_precedence(parser, precedence + 1)?;
+
                 left = Expr(Node {
-                    position: offset,
+                    position,
                     kind: ExprKind::Binary {
                         left: Box::new(left),
                         op,
@@ -276,6 +314,22 @@ impl<'a> Expr<'a> {
                     },
                 });
                 continue;
+            }
+
+            if matches!(next, TokenKind::PlusPlus | TokenKind::MinusMinus) {
+                if let ExprKind::Identifier(dst) = left.0.kind {
+                    let op = if next == TokenKind::PlusPlus {
+                        BinaryOp::Add
+                    } else {
+                        BinaryOp::Sub
+                    };
+                    parser.advance();
+                    left = Expr(Node {
+                        position,
+                        kind: ExprKind::Postfix { dst, op },
+                    });
+                    continue;
+                }
             }
 
             break;

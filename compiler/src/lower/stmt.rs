@@ -70,6 +70,8 @@ impl Generate for Stmt<'_> {
                 let loop_start = ctx.next_label();
                 let loop_end = ctx.next_label();
 
+                ctx.loops.push(loop_end);
+
                 ctx.emit(InstructionKind::Label(loop_start), self.0.position);
 
                 let cond = cond.generate(ctx, scope, id)?;
@@ -89,6 +91,32 @@ impl Generate for Stmt<'_> {
 
                 ctx.emit(InstructionKind::Jump(loop_start), self.0.position);
                 ctx.emit(InstructionKind::Label(loop_end), self.0.position);
+
+                ctx.loops.pop();
+            }
+            StmtKind::Loop(body) => {
+                let loop_start = ctx.next_label();
+                let loop_end = ctx.next_label();
+
+                ctx.loops.push(loop_end);
+
+                ctx.emit(InstructionKind::Label(loop_start), self.0.position);
+
+                for stmt in body {
+                    stmt.generate(ctx, scope, id)?;
+                }
+
+                ctx.emit(InstructionKind::Jump(loop_start), self.0.position);
+                ctx.emit(InstructionKind::Label(loop_end), self.0.position);
+
+                ctx.loops.pop();
+            }
+            StmtKind::Break => {
+                if let Some(&loop_end) = ctx.loops.last() {
+                    ctx.emit(InstructionKind::Jump(loop_end), self.0.position);
+                } else {
+                    return Err("Cannot break outside of a loop".into());
+                }
             }
             StmtKind::Store {
                 size,
