@@ -52,7 +52,7 @@ pub struct Token<'a> {
     pub kind: TokenKind,
     pub value: &'a [u8],
     pub start: usize,
-    pub end: usize,
+    pub _end: usize,
 }
 
 enum Matcher {
@@ -72,7 +72,6 @@ fn match_pattern(input: &[u8], pattern: &[u8]) -> Option<(usize, usize)> {
 
     if pattern.iter().all(|b| b.is_ascii_alphabetic()) {
         let next = input.get(pattern.len());
-
         if matches!(next, Some(b) if matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
             return None;
         }
@@ -83,7 +82,6 @@ fn match_pattern(input: &[u8], pattern: &[u8]) -> Option<(usize, usize)> {
 
 fn match_identifier(input: &[u8]) -> Option<(usize, usize)> {
     let first = input.first()?;
-
     if matches!(first, b'a'..=b'z' | b'A'..=b'Z' | b'_') {
         let len = input
             .iter()
@@ -116,12 +114,10 @@ fn match_number(input: &[u8]) -> Option<(usize, usize)> {
 }
 
 fn match_string(input: &[u8]) -> Option<(usize, usize)> {
-    let first = input.first()?;
-
-    if matches!(first, b'"') {
+    if matches!(input.first()?, b'"') {
         input[1..]
             .iter()
-            .position(|&b| matches!(b, b'"'))
+            .position(|&b| b == b'"')
             .map(|pos| (pos + 2, pos))
     } else {
         None
@@ -133,7 +129,6 @@ fn match_whitespace(input: &[u8]) -> Option<(usize, usize)> {
         .iter()
         .take_while(|&&b| matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
         .count();
-
     if len > 0 { Some((len, len)) } else { None }
 }
 
@@ -155,6 +150,7 @@ static RULES: &[Rule] = &[
         matcher: Matcher::Dynamic(match_comment),
         kind: TokenKind::Ignore,
     },
+    // Keywords
     Rule {
         matcher: Matcher::Fixed(b"fn"),
         kind: TokenKind::Function,
@@ -199,6 +195,7 @@ static RULES: &[Rule] = &[
         matcher: Matcher::Fixed(b"qword"),
         kind: TokenKind::Qword,
     },
+    // Literals
     Rule {
         matcher: Matcher::Dynamic(match_number),
         kind: TokenKind::Number,
@@ -211,6 +208,7 @@ static RULES: &[Rule] = &[
         matcher: Matcher::Dynamic(match_identifier),
         kind: TokenKind::Identifier,
     },
+    // Multi-character operators
     Rule {
         matcher: Matcher::Fixed(b"=="),
         kind: TokenKind::Equals,
@@ -228,6 +226,39 @@ static RULES: &[Rule] = &[
         kind: TokenKind::GreaterEqual,
     },
     Rule {
+        matcher: Matcher::Fixed(b"<<"),
+        kind: TokenKind::ShiftLeft,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b">>"),
+        kind: TokenKind::ShiftRight,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"+="),
+        kind: TokenKind::PlusEqual,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"-="),
+        kind: TokenKind::MinusEqual,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"*="),
+        kind: TokenKind::StarEqual,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"&="),
+        kind: TokenKind::AmpersandEqual,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"|="),
+        kind: TokenKind::PipeEqual,
+    },
+    Rule {
+        matcher: Matcher::Fixed(b"^="),
+        kind: TokenKind::CaretEqual,
+    },
+    // Single-character operators
+    Rule {
         matcher: Matcher::Fixed(b"<"),
         kind: TokenKind::Less,
     },
@@ -240,65 +271,34 @@ static RULES: &[Rule] = &[
         kind: TokenKind::Equal,
     },
     Rule {
-        matcher: Matcher::Fixed(b"+="),
-        kind: TokenKind::PlusEqual,
-    },
-    Rule {
         matcher: Matcher::Fixed(b"+"),
         kind: TokenKind::Plus,
-    },
-    Rule {
-        matcher: Matcher::Fixed(b"-="),
-        kind: TokenKind::MinusEqual,
     },
     Rule {
         matcher: Matcher::Fixed(b"-"),
         kind: TokenKind::Minus,
     },
     Rule {
-        matcher: Matcher::Fixed(b"*="),
-        kind: TokenKind::StarEqual,
-    },
-    Rule {
         matcher: Matcher::Fixed(b"*"),
         kind: TokenKind::Star,
-    },
-    Rule {
-        matcher: Matcher::Fixed(b"&="),
-        kind: TokenKind::AmpersandEqual,
     },
     Rule {
         matcher: Matcher::Fixed(b"&"),
         kind: TokenKind::Ampersand,
     },
     Rule {
-        matcher: Matcher::Fixed(b"|="),
-        kind: TokenKind::PipeEqual,
-    },
-    Rule {
         matcher: Matcher::Fixed(b"|"),
         kind: TokenKind::Pipe,
-    },
-    Rule {
-        matcher: Matcher::Fixed(b"^="),
-        kind: TokenKind::CaretEqual,
     },
     Rule {
         matcher: Matcher::Fixed(b"^"),
         kind: TokenKind::Caret,
     },
     Rule {
-        matcher: Matcher::Fixed(b"<<"),
-        kind: TokenKind::ShiftLeft,
-    },
-    Rule {
-        matcher: Matcher::Fixed(b">>"),
-        kind: TokenKind::ShiftRight,
-    },
-    Rule {
         matcher: Matcher::Fixed(b"!"),
         kind: TokenKind::Bang,
     },
+    // Punctuation
     Rule {
         matcher: Matcher::Fixed(b"("),
         kind: TokenKind::LParen,
@@ -346,12 +346,11 @@ pub fn tokenize<'a>(input: &'a [u8]) -> Result<Vec<Token<'a>>, Box<dyn Error>> {
                     } else {
                         0
                     };
-
                     tokens.push(Token {
                         kind: rule.kind,
                         value: &rest[start_skip..start_skip + value_len],
                         start: offset,
-                        end: offset + total_len,
+                        _end: offset + total_len,
                     });
                 }
                 offset += total_len;
@@ -362,7 +361,7 @@ pub fn tokenize<'a>(input: &'a [u8]) -> Result<Vec<Token<'a>>, Box<dyn Error>> {
 
         if !matched {
             let b = input[offset];
-            let c = if b.is_ascii_graphic() || matches!(b, b' ') {
+            let c = if b.is_ascii_graphic() || b == b' ' {
                 format!("'{}'", b as char)
             } else {
                 format!("0x{:02X}", b)

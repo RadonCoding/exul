@@ -9,8 +9,8 @@ use std::error::Error;
 fn parse_number(v: &[u8]) -> Result<i64, Box<dyn std::error::Error>> {
     let s = String::from_utf8_lossy(v);
 
-    if s.starts_with("0x") {
-        Ok(i64::from_str_radix(&s[2..], 16)?)
+    if let Some(hex) = s.strip_prefix("0x") {
+        Ok(u64::from_str_radix(hex, 16)? as i64)
     } else {
         Ok(s.parse::<i64>()?)
     }

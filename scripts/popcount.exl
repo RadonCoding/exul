@@ -1,0 +1,23 @@
+fn popcount(v) {
+    v -= (v >> 1) & 0x5555555555555555
+    v = (v & 0x3333333333333333) + ((v >> 2) & 0x3333333333333333)
+    v = (v + (v >> 4)) & 0x0f0f0f0f0f0f0f0f
+    return (v * 0x0101010101010101) >> 56
+}
+
+fn next_pow2(n) {
+    n -= 1
+    n |= n >> 1
+    n |= n >> 2
+    n |= n >> 4
+    n |= n >> 8
+    n |= n >> 16
+    n |= n >> 32
+    return n + 1
+}
+
+fn main() {
+    bits = popcount(0xdeadbeefcafe1337)
+    p2 = next_pow2(100)
+    return bits + p2
+}
