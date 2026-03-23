@@ -111,18 +111,18 @@ fn match_number(input: &[u8]) -> Option<(usize, usize)> {
 }
 
 fn match_string(input: &[u8]) -> Option<(usize, usize)> {
-    if matches!(input.first()?, b'"') {
-        input[1..]
-            .iter()
-            .position(|&b| b == b'"')
-            .map(|pos| (pos + 2, pos))
-    } else {
-        None
+    if !input.starts_with(b'"') {
+        return None;
     }
+
+    input[1..]
+        .iter()
+        .position(|&b| b == b'"')
+        .map(|pos| (pos + 2, pos))
 }
 
 fn match_char(input: &[u8]) -> Option<(usize, usize)> {
-    if !matches!(input.first()?, b'\'') {
+    if !input.starts_with(b"'") {
         return None;
     }
 
