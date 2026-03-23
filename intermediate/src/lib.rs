@@ -45,17 +45,19 @@ pub enum Segment {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Builtin {
     Resolve,
+    Strlen,
     Print,
 }
 
 impl Builtin {
     pub fn all() -> &'static [Builtin] {
-        &[Builtin::Resolve, Builtin::Print]
+        &[Builtin::Resolve, Builtin::Strlen, Builtin::Print]
     }
 
     pub fn name(&self) -> &'static str {
         match self {
             Builtin::Resolve => "__resolve__",
+            Builtin::Strlen => "strlen",
             Builtin::Print => "print",
         }
     }
@@ -63,13 +65,15 @@ impl Builtin {
     pub fn id(&self) -> FunctionId {
         match self {
             Builtin::Resolve => FunctionId(0),
-            Builtin::Print => FunctionId(1),
+            Builtin::Strlen => FunctionId(1),
+            Builtin::Print => FunctionId(2),
         }
     }
 
     pub fn source(&self) -> &'static [u8] {
         match self {
             Builtin::Resolve => include_bytes!("../../stdlib/resolve.exl"),
+            Builtin::Strlen => include_bytes!("../../stdlib/strlen.exl"),
             Builtin::Print => include_bytes!("../../stdlib/print.exl"),
         }
     }

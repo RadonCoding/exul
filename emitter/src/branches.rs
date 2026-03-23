@@ -73,7 +73,11 @@ impl<C: Convention> Emitter<C> {
 
         ctx.registers.invalidate_volatiles(&self.convention);
 
-        ctx.registers.track(self.ret(), Value::Symbol(dst));
+        if self.is_live(ctx, dst) {
+            self.spill(ctx, dst, self.ret())?;
+        } else {
+            ctx.registers.track(self.ret(), Value::Symbol(dst));
+        }
 
         Ok(())
     }

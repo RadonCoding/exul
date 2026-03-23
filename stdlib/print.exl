@@ -1,5 +1,5 @@
-fn print(s) {
-    for i = 0; *byte(s + i) != 0; i += 1;
+fn print(input) {
+    length = strlen(input)
     handle = kernel32!GetStdHandle(-11)
-    return kernel32!WriteFile(handle, s, i, 0, 0)
+    return kernel32!WriteFile(handle, input, length, 0, 0)
 }

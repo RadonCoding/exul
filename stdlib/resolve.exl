@@ -33,7 +33,7 @@ fn __get_export__(image, name) {
 
         if __strcmp_ansi_ansi__(current, name) {
             ordinal = *word(address_of_name_ordinals + i * 2)
-            rva = *dword(address_of_functions + ordinal + ordinal + ordinal + ordinal)
+            rva = *dword(address_of_functions + ordinal * 4)
 
             address = image + rva
 

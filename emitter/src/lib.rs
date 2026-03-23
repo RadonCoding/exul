@@ -146,8 +146,10 @@ impl<C: Convention> Emitter<C> {
 
         // No free registers, push a victim back to its slot to make room
         let (reg, offset) = ctx.registers.evict(&volatiles, &ctx.slots);
+
         self.asm
             .mov(qword_ptr(rbp - offset), get_gpr64(reg).unwrap())?;
+
         Ok(reg)
     }
 
@@ -302,6 +304,27 @@ impl<C: Convention> Emitter<C> {
         ctx.registers.track(reg, Value::Symbol(dst));
 
         Ok(())
+    }
+
+    /// Checks whether the symbol is read later by anything other than a return.
+    pub(crate) fn is_live(&self, ctx: &FunctionContext, sym: SymbolId) -> bool {
+        let remaining = &ctx.instructions[ctx.cursor + 1..];
+
+        if let [
+            Instruction {
+                kind: InstructionKind::Return(Value::Symbol(s)),
+                ..
+            },
+        ] = remaining
+        {
+            if *s == sym {
+                return false;
+            }
+        }
+
+        remaining
+            .iter()
+            .any(|inst| inst.kind.read_symbols().contains(&sym))
     }
 
     pub(crate) fn get_label(&mut self, ctx: &mut FunctionContext, id: LabelId) -> CodeLabel {
