@@ -91,33 +91,37 @@ impl<'a> Peephole<'a> {
         };
 
         if let InstructionKind::JumpIfFalse {
-            cond: Value::Symbol(s),
-            dst: label,
+            val: Value::Symbol(jif_condition),
+            dst: jif_dst,
         } = next.kind
         {
             match current.kind {
-                InstructionKind::Eq { dst, left, right }
-                    if dst == s && !self.symbol_read_after(dst, i + 2) =>
-                {
+                InstructionKind::Eq {
+                    dst: eq_dst,
+                    left: eq_left,
+                    right: eq_right,
+                } if eq_dst == jif_condition && !self.symbol_read_after(eq_dst, i + 2) => {
                     self.function.instructions[i] = Instruction {
                         kind: InstructionKind::JumpIfNotEq {
-                            left,
-                            right,
-                            dst: label,
+                            left: eq_left,
+                            right: eq_right,
+                            dst: jif_dst,
                         },
                         offset: current.offset,
                     };
                     self.function.instructions.remove(i + 1);
                     return Some(1);
                 }
-                InstructionKind::NotEq { dst, left, right }
-                    if dst == s && !self.symbol_read_after(dst, i + 2) =>
-                {
+                InstructionKind::NotEq {
+                    dst: neq_dst,
+                    left: neq_left,
+                    right: neq_right,
+                } if neq_dst == jif_condition && !self.symbol_read_after(neq_dst, i + 2) => {
                     self.function.instructions[i] = Instruction {
                         kind: InstructionKind::JumpIfEq {
-                            left,
-                            right,
-                            dst: label,
+                            left: neq_left,
+                            right: neq_right,
+                            dst: jif_dst,
                         },
                         offset: current.offset,
                     };

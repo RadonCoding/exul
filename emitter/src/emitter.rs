@@ -1,10 +1,7 @@
-use std::{
-    collections::{BTreeMap, HashSet},
-    error::Error,
-};
+use std::{collections::BTreeMap, error::Error};
 
 use crate::{
-    allocator::{self, Allocator},
+    allocator::Allocator,
     assembly::{Assembly, Blob},
     context::FunctionContext,
     convention::Convention,
@@ -382,24 +379,6 @@ impl<C: Convention> Emitter<C> {
         let mut allocator = Allocator::new(&self.convention);
         allocator.allocate_parameters(&mut ctx.slots, params);
         allocator.allocate_symbols(&mut ctx.slots, &ctx.instructions);
-
-        let ranges = allocator::compute_live_ranges(&ctx.instructions);
-        let labels = ctx
-            .instructions
-            .iter()
-            .enumerate()
-            .filter_map(|(i, instr)| matches!(instr.kind, InstructionKind::Label(_)).then_some(i))
-            .collect::<Vec<usize>>();
-
-        ctx.pinned = ranges
-            .into_iter()
-            .filter(|(_, range)| {
-                labels
-                    .iter()
-                    .any(|&pos| range.start < pos && pos < range.end)
-            })
-            .map(|(sym, _)| sym)
-            .collect();
     }
 
     fn emit_function(&mut self, function: &Function) -> Result<(), Box<dyn Error>> {
@@ -419,10 +398,8 @@ impl<C: Convention> Emitter<C> {
             cursor: 0,
             instructions: &function.instructions,
             registers: Registers::new(),
-            pinned: HashSet::new(),
         };
 
-        // Set register tracking for the argument registers.
         for (i, &sym) in function.params.iter().enumerate() {
             if let Some(reg) = self.convention.argument_reg(i) {
                 ctx.registers.track(reg, Value::Symbol(sym));
@@ -450,9 +427,6 @@ impl<C: Convention> Emitter<C> {
         for (i, &sym) in function.params.iter().enumerate() {
             if let Some(reg) = self.convention.argument_reg(i) {
                 self.spill_symbol(&mut ctx, sym, reg)?;
-
-                // HOTFIX: mark register as free-to-use
-                ctx.registers.invalidate_register(reg);
             }
         }
 

@@ -330,12 +330,10 @@ impl Generate for Expr<'_> {
             ExprKind::Segment { seg, offset } => {
                 let offset = offset.generate(ctx, scope, id)?;
                 let dst = ctx.next_symbol();
-
                 ctx.emit(
                     InstructionKind::Segment { dst, seg, offset },
                     self.0.position,
                 );
-
                 Ok(Value::Symbol(dst))
             }
         }

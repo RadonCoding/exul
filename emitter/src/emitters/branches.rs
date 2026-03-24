@@ -10,11 +10,10 @@ impl<C: Convention> Emitter<C> {
         kind: InstructionKind,
     ) -> Result<(), Box<dyn Error>> {
         match kind {
-            InstructionKind::JumpIfFalse { cond, dst } => {
-                let reg = self.scratch(ctx)?;
-                self.load_to_register(ctx, cond, reg)?;
-                let cond64 = r64!(reg);
-                self.asm.test(cond64, cond64)?;
+            InstructionKind::JumpIfFalse { val, dst } => {
+                let r = self.scratch(ctx)?;
+                self.load_to_register(ctx, val, r)?;
+                self.asm.test(r64!(r), r64!(r))?;
                 let l = self.get_label(ctx, dst);
                 self.asm.jz(l)?;
             }

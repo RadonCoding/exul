@@ -189,7 +189,7 @@ pub enum InstructionKind {
     Return(Value),
     Label(LabelId),
     JumpIfFalse {
-        cond: Value,
+        val: Value,
         dst: LabelId,
     },
     JumpIfEq {
@@ -252,7 +252,7 @@ impl InstructionKind {
                     symbols.extend(arg.symbols());
                 }
             }
-            InstructionKind::Return(val) | InstructionKind::JumpIfFalse { cond: val, .. } => {
+            InstructionKind::Return(val) | InstructionKind::JumpIfFalse { val, .. } => {
                 symbols.extend(val.symbols());
             }
             InstructionKind::Load { src, .. } => {

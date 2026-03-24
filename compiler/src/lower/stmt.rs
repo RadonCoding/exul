@@ -33,16 +33,20 @@ impl Generate for Stmt<'_> {
                 ctx.emit(InstructionKind::Return(value), self.0.position);
             }
             StmtKind::If {
-                cond,
+                condition,
                 consequent,
                 alternate,
             } => {
-                let cond = cond.generate(ctx, scope, id)?;
+                let condition = condition.generate(ctx, scope, id)?;
+
                 let l1 = ctx.next_label();
                 let l2 = ctx.next_label();
 
                 ctx.emit(
-                    InstructionKind::JumpIfFalse { cond, dst: l1 },
+                    InstructionKind::JumpIfFalse {
+                        val: condition,
+                        dst: l1,
+                    },
                     self.0.position,
                 );
                 for stmt in consequent {
@@ -61,7 +65,7 @@ impl Generate for Stmt<'_> {
             }
             StmtKind::For {
                 init,
-                cond,
+                condition,
                 step,
                 body,
             } => {
@@ -74,10 +78,10 @@ impl Generate for Stmt<'_> {
 
                 ctx.emit(InstructionKind::Label(loop_start), self.0.position);
 
-                let cond = cond.generate(ctx, scope, id)?;
+                let condition = condition.generate(ctx, scope, id)?;
                 ctx.emit(
                     InstructionKind::JumpIfFalse {
-                        cond,
+                        val: condition,
                         dst: loop_end,
                     },
                     self.0.position,

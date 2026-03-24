@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use iced_x86::code_asm::CodeLabel;
 use intermediate::{Instruction, LabelId, SymbolId};
@@ -13,5 +13,4 @@ pub(crate) struct FunctionContext<'a> {
     pub(crate) cursor: usize,
     pub(crate) instructions: &'a [Instruction],
     pub(crate) registers: Registers,
-    pub(crate) pinned: HashSet<SymbolId>,
 }
