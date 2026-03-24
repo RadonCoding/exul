@@ -88,6 +88,7 @@ impl<C: Convention> Emitter<C> {
         }
 
         ctx.registers.track(reg, val);
+
         Ok(())
     }
 
@@ -219,14 +220,13 @@ impl<C: Convention> Emitter<C> {
         Ok(())
     }
 
-    /// Spills all symbols currently tracked in volatile registers, then clears register tracking.
+    /// Spills all tracked symbols in volatile registers.
     pub(crate) fn spill_volatiles(
         &mut self,
         ctx: &mut FunctionContext,
     ) -> Result<(), Box<dyn Error>> {
         let volatiles = self.convention.volatile_registers();
         self.spill_registers(ctx, |reg, _val| volatiles.contains(reg))?;
-        ctx.registers.invalidate_volatiles(&self.convention);
         Ok(())
     }
 
@@ -236,7 +236,6 @@ impl<C: Convention> Emitter<C> {
         ctx: &mut FunctionContext,
     ) -> Result<(), Box<dyn Error>> {
         self.spill_registers(ctx, |_reg, val| matches!(val, Value::Symbol(_)))?;
-        ctx.registers.invalidate();
         Ok(())
     }
 
@@ -279,8 +278,8 @@ impl<C: Convention> Emitter<C> {
         self.labels[index]
     }
 
-    /// Consolidates pending virtual labels into a single physical code offset.
-    fn bind_pending(&mut self, ctx: &mut FunctionContext) -> Result<(), Box<dyn Error>> {
+    /// Consolidates remaining labels into a single label.
+    fn resolve_labels(&mut self, ctx: &mut FunctionContext) -> Result<(), Box<dyn Error>> {
         if ctx.pending.is_empty() {
             return Ok(());
         }
@@ -452,18 +451,20 @@ impl<C: Convention> Emitter<C> {
             let instruction = ctx.instructions[i].clone();
 
             match instruction.kind {
+                // Spill all live values before entering a new basic block where control flow may merge.
                 InstructionKind::Label(id) => {
                     self.spill_everything(&mut ctx)?;
+                    ctx.registers.invalidate();
                     ctx.pending.push(id);
                 }
                 _ => {
-                    self.bind_pending(&mut ctx)?;
+                    self.resolve_labels(&mut ctx)?;
                     self.compile_instruction(&mut ctx, instruction.kind)?;
                 }
             }
         }
 
-        self.bind_pending(&mut ctx)?;
+        self.resolve_labels(&mut ctx)?;
 
         self.asm.set_label(&mut ctx.epilogue)?;
 

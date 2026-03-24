@@ -34,9 +34,4 @@ impl<'a> FunctionContext<'a> {
             .get(&sym)
             .map_or(false, |range| self.cursor + 1 < range.end)
     }
-
-    /// Whether the symbol is live at any point in the function.
-    pub(crate) fn is_ever_live(&self, sym: SymbolId) -> bool {
-        self.liveness.contains_key(&sym)
-    }
 }
