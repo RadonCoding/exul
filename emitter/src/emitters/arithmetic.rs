@@ -7,7 +7,7 @@ use crate::{
 };
 use iced_x86::{
     Register,
-    code_asm::{cl, qword_ptr, rbp},
+    code_asm::{cl, qword_ptr, rbp, rcx},
 };
 use intermediate::{SymbolId, Value};
 use std::error::Error;
@@ -218,12 +218,12 @@ impl<C: Convention> Emitter<C> {
         match rloc {
             Operand::Immediate(imm) => self.asm.shl(r64!(dreg), imm as u32)?,
             Operand::Register(r) => {
-                ctx.registers.invalidate_register(Register::RCX);
+                self.displace(ctx, Register::RCX)?;
                 self.asm.mov(r64!(Register::RCX), r64!(r))?;
                 self.asm.shl(r64!(dreg), cl)?;
             }
             Operand::Stack(offset) => {
-                ctx.registers.invalidate_register(Register::RCX);
+                self.displace(ctx, Register::RCX)?;
                 self.asm.mov(r64!(Register::RCX), qword_ptr(rbp - offset))?;
                 self.asm.shl(r64!(dreg), cl)?;
             }
@@ -231,6 +231,7 @@ impl<C: Convention> Emitter<C> {
         }
 
         self.spill_and_track(ctx, dst, dreg)?;
+
         Ok(())
     }
 
@@ -247,13 +248,13 @@ impl<C: Convention> Emitter<C> {
         match rloc {
             Operand::Immediate(imm) => self.asm.shr(r64!(dreg), imm as u32)?,
             Operand::Register(r) => {
-                ctx.registers.invalidate_register(Register::RCX);
-                self.asm.mov(r64!(Register::RCX), r64!(r))?;
+                self.displace(ctx, Register::RCX)?;
+                self.asm.mov(rcx, r64!(r))?;
                 self.asm.shr(r64!(dreg), cl)?;
             }
             Operand::Stack(offset) => {
-                ctx.registers.invalidate_register(Register::RCX);
-                self.asm.mov(r64!(Register::RCX), qword_ptr(rbp - offset))?;
+                self.displace(ctx, Register::RCX)?;
+                self.asm.mov(rcx, qword_ptr(rbp - offset))?;
                 self.asm.shr(r64!(dreg), cl)?;
             }
             _ => unreachable!(),

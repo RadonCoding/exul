@@ -20,7 +20,7 @@ impl<C: Convention> Emitter<C> {
         let dreg = self.scratch(ctx)?;
 
         // Resolve the address directly to avoid clobbering live values with an intermediate move.
-        let sloc = ctx.registers.locate(src, &self, &ctx);
+        let sloc = ctx.registers.locate(src, &self.blobs, &ctx.slots);
         let sreg = match sloc {
             Operand::Register(r) => r,
             Operand::Stack(offset) => {

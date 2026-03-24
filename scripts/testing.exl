@@ -1,14 +1,20 @@
-fn f1() {
-    return 200
+fn __strcmp_ansi_ansi__(a, b) {
+    i = 0
+    loop {
+        if *byte(a + i) == '\0' {
+            break
+        }
+        ca = *byte(a + i)
+        cb = *byte(b + i)
+        if ca != cb {
+            return 0
+        }
+        i += 1
+    }
+    return *byte(b + i) == '\0'
 }
 
 fn main() {
-    a = 100
-    b = f1()
-
-    for i = 0; i < 5; i++ {
-        a ^= b
-    }
-
-    return a
+    result = __strcmp_ansi_ansi__("hello", "hello")
+    return result
 }

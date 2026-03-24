@@ -81,8 +81,10 @@ fn build_symbols(assembly: &Assembly, module: &Module, ip: u64) -> HashMap<u64, 
     map
 }
 
-fn print_ir(module: &Module, filter: Option<&String>) {
+fn print_ir(module: &Module, filter: Option<&String>) -> bool {
     let mut first = true;
+    let mut printed = false;
+
     for f in &module.functions {
         if let Some(filter) = filter {
             if &f.name != filter {
@@ -112,10 +114,13 @@ fn print_ir(module: &Module, filter: Option<&String>) {
         println!("}}");
 
         first = false;
+        printed = true;
     }
+
+    printed
 }
 
-fn print_asm(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
+fn print_asm(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) -> bool {
     let symbols = build_symbols(assembly, module, ip);
 
     let imports_start = assembly.blobs.last().map(|b| b.offset + b.len).unwrap_or(0);
@@ -202,8 +207,11 @@ fn print_asm(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>
         offset += len;
     }
 
-    let mut was_label = true;
+    let mut printed = false;
+
     let mut printing = filter.is_none();
+
+    let mut was_label = true;
 
     for (address, hex, output) in &entries {
         if let Some(name) = symbols.get(address) {
@@ -218,6 +226,7 @@ fn print_asm(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>
                     println!();
                 }
                 println!("{}:", name);
+                printed = true;
             }
 
             was_label = printing;
@@ -232,6 +241,7 @@ fn print_asm(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>
             continue;
         }
 
+        printed = true;
         print!(
             "  0x{:04X}: {:<width_b$}  ",
             address,
@@ -252,6 +262,8 @@ fn print_asm(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>
             println!("{}", output);
         }
     }
+
+    printed
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -285,23 +297,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut module = lower::generate(tree)?;
     elapsed += start.elapsed();
 
-    if args.ir {
-        print_ir(&module, args.function.as_ref());
-        space = true;
-    }
-
     let start = Instant::now();
     peephole::optimize(&mut module);
     elapsed += start.elapsed();
 
     if args.ir {
-        if space {
+        let printed = print_ir(&module, args.function.as_ref());
+
+        if printed {
             println!();
+            space = false;
         }
-        println!("--- optimized ---");
-        println!();
-        print_ir(&module, args.function.as_ref());
-        space = true;
     }
 
     let start = Instant::now();
@@ -309,11 +315,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     elapsed += start.elapsed();
 
     if args.asm {
-        if space {
-            println!();
+        let printed = print_asm(&assembly, &module, args.ip, args.function.as_deref());
+
+        if printed {
+            space = true;
         }
-        print_asm(&assembly, &module, args.ip, args.function.as_deref());
-        space = true;
     }
 
     if space {

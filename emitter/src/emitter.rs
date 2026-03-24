@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, error::Error};
 
 use crate::{
-    allocator::{self, Allocator},
+    allocator::{Allocator, Liveness},
     assembly::{Assembly, Blob},
     context::FunctionContext,
     convention::Convention,
@@ -17,8 +17,8 @@ use intermediate::{Function, FunctionId, InstructionKind, LabelId, Module, Symbo
 pub struct Emitter<C: Convention> {
     pub(crate) asm: CodeAssembler,
     pub(crate) convention: C,
-    pub(crate) data_labels: Vec<CodeLabel>,
-    pub(crate) data_bytes: Vec<Vec<u8>>,
+    pub(crate) blobs: Vec<CodeLabel>,
+    pub(crate) blob: Vec<Vec<u8>>,
     pub(crate) imports: BTreeMap<FunctionId, CodeLabel>,
     pub(crate) functions: BTreeMap<FunctionId, CodeLabel>,
     pub(crate) labels: Vec<CodeLabel>,
@@ -29,12 +29,50 @@ impl<C: Convention> Emitter<C> {
         Ok(Self {
             asm: CodeAssembler::new(64)?,
             convention,
-            data_labels: Vec::new(),
-            data_bytes: Vec::new(),
+            blobs: Vec::new(),
+            blob: Vec::new(),
             imports: BTreeMap::new(),
             functions: BTreeMap::new(),
             labels: Vec::new(),
         })
+    }
+
+    /// Evicts the current value in a register, spilling it if it represents a symbol.
+    pub(crate) fn displace(
+        &mut self,
+        ctx: &mut FunctionContext,
+        reg: Register,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(existing) = ctx.registers.tracked_value(reg) {
+            if let Value::Symbol(sym) = existing {
+                self.spill(ctx, sym, reg)?;
+            }
+            ctx.registers.untrack(reg);
+        }
+        Ok(())
+    }
+
+    /// Prepares a register to hold a value by evicting its current occupant.
+    pub(crate) fn prepare(
+        &mut self,
+        ctx: &mut FunctionContext,
+        val: Value,
+        reg: Register,
+    ) -> Result<(), Box<dyn Error>> {
+        self.displace(ctx, reg)?;
+
+        if let Value::Symbol(s) = val {
+            if let Some(r) = ctx.registers.tracked_register(val) {
+                // Special-case for arguments that have not been written to their slot yet.
+                if !ctx.registers.is_written(s) {
+                    self.spill(ctx, s, r)?;
+                }
+                ctx.registers.untrack(r);
+            }
+            ctx.registers.track(reg, val);
+        }
+
+        Ok(())
     }
 
     /// Returns a free volatile register, evicting to the stack if all are occupied.
@@ -48,22 +86,136 @@ impl<C: Convention> Emitter<C> {
             return Ok(r);
         }
 
-        // No free registers, push a victim back to its slot to make room.
-        let (reg, sym) = ctx.registers.evict(&volatiles);
+        let (reg, sym) = ctx.registers.evictable(&volatiles, |sym| {
+            !ctx.is_live(sym) && !ctx.will_be_live(sym)
+        });
 
-        self.spill_symbol(ctx, sym, reg)?;
+        ctx.registers.untrack(reg);
+        self.spill(ctx, sym, reg)?;
 
         Ok(reg)
     }
 
-    /// Loads a value into a specific register, emitting a move only when necessary.
+    /// Writes into a [`SymbolId`]'s slot if it will still be needed.
+    pub(crate) fn store(
+        &mut self,
+        ctx: &mut FunctionContext,
+        sym: SymbolId,
+        reg: Register,
+    ) -> Result<(), Box<dyn Error>> {
+        if ctx.registers.is_clean(reg) {
+            return Ok(());
+        }
+        if let Some(&offset) = ctx.slots.get(&sym) {
+            if ctx.is_live(sym) || ctx.will_be_live(sym) {
+                self.asm.mov(ptr(rbp - offset), r64!(reg))?;
+                ctx.registers.set_written(sym);
+                ctx.registers.set_clean(reg);
+            }
+        }
+        Ok(())
+    }
+
+    /// Ensures a [`SymbolId`]'s slot is valid before its register is lost.
+    pub(crate) fn spill(
+        &mut self,
+        ctx: &mut FunctionContext,
+        sym: SymbolId,
+        reg: Register,
+    ) -> Result<(), Box<dyn Error>> {
+        if ctx.registers.is_clean(reg) {
+            return Ok(());
+        }
+        if let Some(&offset) = ctx.slots.get(&sym) {
+            if !ctx.registers.is_written(sym) {
+                self.asm.mov(ptr(rbp - offset), r64!(reg))?;
+                ctx.registers.set_written(sym);
+                ctx.registers.set_clean(reg);
+            } else {
+                self.store(ctx, sym, reg)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Stores a value in a [`Register`] to its slot and begins tracking it.
+    pub(crate) fn spill_and_track(
+        &mut self,
+        ctx: &mut FunctionContext,
+        dst: SymbolId,
+        reg: Register,
+    ) -> Result<(), Box<dyn Error>> {
+        self.store(ctx, dst, reg)?;
+        ctx.registers.untrack(reg);
+        ctx.registers.track(reg, Value::Symbol(dst));
+
+        if ctx.registers.is_written(dst) {
+            ctx.registers.set_clean(reg);
+        }
+
+        Ok(())
+    }
+
+    /// Spills all tracked symbols in volatile registers.
+    pub(crate) fn spill_volatiles(
+        &mut self,
+        ctx: &mut FunctionContext,
+    ) -> Result<(), Box<dyn Error>> {
+        let volatiles = self.convention.volatile_registers();
+        self.spill_registers(ctx, |reg, _val| volatiles.contains(reg))
+    }
+
+    /// Spills all tracked symbols.
+    pub(crate) fn spill_everything(
+        &mut self,
+        ctx: &mut FunctionContext,
+    ) -> Result<(), Box<dyn Error>> {
+        self.spill_registers(ctx, |_reg, val| matches!(val, Value::Symbol(_)))
+    }
+
+    /// Spills symbols for registers matching the provided predicate.
+    fn spill_registers<F>(
+        &mut self,
+        ctx: &mut FunctionContext,
+        predicate: F,
+    ) -> Result<(), Box<dyn Error>>
+    where
+        F: Fn(&Register, &Value) -> bool,
+    {
+        let spillees = ctx
+            .registers
+            .iter()
+            .filter(|(reg, val)| predicate(reg, val))
+            .filter_map(|(&reg, val)| {
+                if let Value::Symbol(sym) = *val {
+                    Some((reg, sym))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<(Register, SymbolId)>>();
+
+        for (reg, sym) in spillees {
+            self.spill(ctx, sym, reg)?;
+        }
+
+        Ok(())
+    }
+
+    /// Loads a [`Value`] into a [`Register`], displacing whatever was there.
     pub(crate) fn load_to_register(
         &mut self,
         ctx: &mut FunctionContext,
         val: Value,
         reg: Register,
     ) -> Result<(), Box<dyn Error>> {
-        let loc = ctx.registers.locate(val, self, &ctx);
+        if ctx.registers.tracked_value(reg) == Some(val) {
+            return Ok(());
+        }
+
+        let loc = ctx.registers.locate(val, &self.blobs, &ctx.slots);
+
+        self.prepare(ctx, val, reg)?;
 
         match loc {
             Operand::Register(r) if r == reg => return Ok(()),
@@ -87,8 +239,6 @@ impl<C: Convention> Emitter<C> {
             }
         }
 
-        ctx.registers.track(reg, val);
-
         Ok(())
     }
 
@@ -100,7 +250,7 @@ impl<C: Convention> Emitter<C> {
         right: Value,
         reg: Register,
     ) -> Result<Operand, Box<dyn Error>> {
-        let rloc = ctx.registers.locate(right, self, &ctx);
+        let rloc = ctx.registers.locate(right, &self.blobs, &ctx.slots);
 
         let rloc = match rloc {
             Operand::Register(r) if r == reg => {
@@ -155,6 +305,8 @@ impl<C: Convention> Emitter<C> {
 
         setcc(self, dreg)?;
 
+        ctx.registers.untrack(dreg);
+
         self.spill_and_track(ctx, dst, dreg)?;
 
         Ok(())
@@ -175,94 +327,6 @@ impl<C: Convention> Emitter<C> {
             Operand::Stack(offset) => self.asm.cmp(r64!(reg), ptr(rbp - offset))?,
             Operand::Immediate(imm) => self.asm.cmp(r64!(reg), imm as i32)?,
             _ => unreachable!(),
-        }
-
-        Ok(())
-    }
-
-    fn store(
-        &mut self,
-        ctx: &mut FunctionContext,
-        sym: SymbolId,
-        reg: Register,
-    ) -> Result<(), Box<dyn Error>> {
-        if let Some(&offset) = ctx.slots.get(&sym) {
-            if ctx.is_live(sym) || ctx.will_be_live(sym) {
-                self.asm.mov(ptr(rbp - offset), r64!(reg))?;
-                ctx.registers.set_dirty(sym);
-            }
-        }
-        Ok(())
-    }
-
-    /// Synchronizes a symbol with its stack slot and marks it as dirty
-    fn spill_symbol(
-        &mut self,
-        ctx: &mut FunctionContext,
-        sym: SymbolId,
-        reg: Register,
-    ) -> Result<(), Box<dyn Error>> {
-        if !ctx.registers.is_dirty(sym) {
-            self.store(ctx, sym, reg)?;
-        }
-        Ok(())
-    }
-
-    /// Synchronizes a register with its stack slot and tracks the symbol.
-    pub(crate) fn spill_and_track(
-        &mut self,
-        ctx: &mut FunctionContext,
-        dst: SymbolId,
-        reg: Register,
-    ) -> Result<(), Box<dyn Error>> {
-        self.store(ctx, dst, reg)?;
-        ctx.registers.track(reg, Value::Symbol(dst));
-        Ok(())
-    }
-
-    /// Spills all tracked symbols in volatile registers.
-    pub(crate) fn spill_volatiles(
-        &mut self,
-        ctx: &mut FunctionContext,
-    ) -> Result<(), Box<dyn Error>> {
-        let volatiles = self.convention.volatile_registers();
-        self.spill_registers(ctx, |reg, _val| volatiles.contains(reg))?;
-        Ok(())
-    }
-
-    /// Spills all tracked symbols.
-    pub(crate) fn spill_everything(
-        &mut self,
-        ctx: &mut FunctionContext,
-    ) -> Result<(), Box<dyn Error>> {
-        self.spill_registers(ctx, |_reg, val| matches!(val, Value::Symbol(_)))?;
-        Ok(())
-    }
-
-    /// Spills symbols for registers matching the provided predicate.
-    fn spill_registers<F>(
-        &mut self,
-        ctx: &mut FunctionContext,
-        predicate: F,
-    ) -> Result<(), Box<dyn Error>>
-    where
-        F: Fn(&Register, &Value) -> bool,
-    {
-        let spillees = ctx
-            .registers
-            .iter()
-            .filter(|(reg, val)| predicate(reg, val))
-            .filter_map(|(&reg, val)| {
-                if let Value::Symbol(sym) = *val {
-                    Some((reg, sym))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<(Register, SymbolId)>>();
-
-        for (reg, sym) in spillees {
-            self.spill_symbol(ctx, sym, reg)?;
         }
 
         Ok(())
@@ -320,8 +384,8 @@ impl<C: Convention> Emitter<C> {
         for s in &module.strings {
             let label = self.asm.create_label();
             let bytes = s.bytes().chain([0]).collect::<Vec<u8>>();
-            self.data_labels.push(label);
-            self.data_bytes.push(bytes);
+            self.blobs.push(label);
+            self.blob.push(bytes);
         }
 
         for import in &module.imports {
@@ -344,9 +408,9 @@ impl<C: Convention> Emitter<C> {
             self.emit_function(function)?;
         }
 
-        for i in 0..self.data_labels.len() {
-            self.asm.set_label(&mut self.data_labels[i])?;
-            self.asm.db(&self.data_bytes[i])?;
+        for i in 0..self.blobs.len() {
+            self.asm.set_label(&mut self.blobs[i])?;
+            self.asm.db(&self.blob[i])?;
         }
 
         for import in &module.imports {
@@ -360,9 +424,9 @@ impl<C: Convention> Emitter<C> {
             .assemble_options(ip, BlockEncoderOptions::RETURN_NEW_INSTRUCTION_OFFSETS)?;
 
         let sections = self
-            .data_labels
+            .blobs
             .iter()
-            .zip(self.data_bytes.iter())
+            .zip(self.blob.iter())
             .map(|(label, bytes)| Blob {
                 offset: (result.label_ip(label).unwrap() - ip) as usize,
                 len: bytes.len(),
@@ -386,10 +450,12 @@ impl<C: Convention> Emitter<C> {
     fn allocate(&mut self, ctx: &mut FunctionContext, params: &[SymbolId]) {
         let mut allocator = Allocator::new(&self.convention);
         allocator.allocate_parameters(&mut ctx.slots, params);
-        allocator.allocate_symbols(&mut ctx.slots, &ctx.instructions);
+        allocator.allocate_symbols(&mut ctx.slots, &ctx.instructions, &ctx.liveness);
     }
 
     fn emit_function(&mut self, function: &Function) -> Result<(), Box<dyn Error>> {
+        println!("Compiling function: '{}'", function.name);
+
         self.asm
             .set_label(self.functions.get_mut(&function.id).unwrap())?;
 
@@ -398,10 +464,9 @@ impl<C: Convention> Emitter<C> {
 
         let epilogue = self.asm.create_label();
 
-        let liveness = allocator::compute_live_ranges(&function.instructions);
+        let liveness = Liveness::new(&function.instructions);
 
         let mut ctx = FunctionContext {
-            name: function.name.to_string(),
             slots: BTreeMap::new(),
             labels: BTreeMap::new(),
             pending: Vec::new(),
@@ -411,13 +476,6 @@ impl<C: Convention> Emitter<C> {
             registers: Registers::new(),
             liveness,
         };
-
-        for (i, &sym) in function.params.iter().enumerate() {
-            if let Some(reg) = self.convention.argument_reg(i) {
-                ctx.registers.track(reg, Value::Symbol(sym));
-            }
-            ctx.registers.set_dirty(sym);
-        }
 
         self.allocate(&mut ctx, &function.params);
 
@@ -435,13 +493,12 @@ impl<C: Convention> Emitter<C> {
             self.asm.sub(rsp, stack as i32)?;
         }
 
+        // Track argument registers or slots.
         for (i, &sym) in function.params.iter().enumerate() {
             if let Some(reg) = self.convention.argument_reg(i) {
-                if ctx.is_live(sym) {
-                    self.store(&mut ctx, sym, reg)?;
-                } else {
-                    ctx.registers.set_dirty(sym);
-                }
+                ctx.registers.track(reg, Value::Symbol(sym));
+            } else {
+                ctx.registers.set_written(sym);
             }
         }
 

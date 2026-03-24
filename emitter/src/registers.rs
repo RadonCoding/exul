@@ -1,4 +1,4 @@
-use crate::{context::FunctionContext, convention::Convention, emitter::Emitter};
+use crate::convention::Convention;
 use iced_x86::{Register, code_asm::CodeLabel};
 use intermediate::{SymbolId, Value};
 use std::collections::{
@@ -18,14 +18,17 @@ pub struct Registers {
     /// Tracks which value currently resides in which register.
     tracked: BTreeMap<Register, Value>,
     /// Tracks which stack slots have been written at least once.
-    dirty: HashSet<SymbolId>,
+    written: HashSet<SymbolId>,
+    /// Tracks registers whose current value is coherent with their stack slot.
+    clean: HashSet<Register>,
 }
 
 impl Registers {
     pub fn new() -> Self {
         Self {
             tracked: BTreeMap::new(),
-            dirty: HashSet::new(),
+            written: HashSet::new(),
+            clean: HashSet::new(),
         }
     }
 
@@ -33,36 +36,60 @@ impl Registers {
         self.tracked.iter()
     }
 
-    pub fn is_dirty(&self, sym: SymbolId) -> bool {
-        self.dirty.contains(&sym)
+    pub fn is_written(&self, sym: SymbolId) -> bool {
+        self.written.contains(&sym)
     }
 
-    /// Records that [`SymbolId`]'s stack slot has been physically written to.
-    pub fn set_dirty(&mut self, sym: SymbolId) {
-        self.dirty.insert(sym);
+    pub fn set_written(&mut self, sym: SymbolId) {
+        self.written.insert(sym);
+    }
+
+    pub fn is_clean(&self, reg: Register) -> bool {
+        self.clean.contains(&reg)
+    }
+
+    pub fn set_clean(&mut self, reg: Register) {
+        self.clean.insert(reg);
     }
 
     /// Tracks a value in a register, replacing any previous location of the same symbol.
     pub fn track(&mut self, reg: Register, val: Value) {
+        if let Some(existing) = self.tracked.get(&reg) {
+            panic!(
+                "register '{:?}' already occupied by '{:?}', must be spilled before tracking '{:?}'",
+                reg, existing, val
+            );
+        }
         if let Value::Symbol(s) = val {
-            self.tracked.retain(|_, v| *v != Value::Symbol(s));
+            for (r, v) in &self.tracked {
+                if *v == Value::Symbol(s) {
+                    panic!(
+                        "symbol '{:?}' is already tracked in '{:?}', must be untracked before tracking in '{:?}'",
+                        s, r, reg
+                    );
+                }
+            }
         }
         self.tracked.insert(reg, val);
+        self.clean.remove(&reg);
+    }
+
+    /// Drops a specific register from tracking when it is about to be clobbered.
+    pub fn untrack(&mut self, reg: Register) {
+        self.tracked.remove(&reg);
+        self.clean.remove(&reg);
     }
 
     pub fn invalidate(&mut self) {
         self.tracked.clear();
-    }
-
-    /// Drops a specific register from tracking when it is about to be clobbered.
-    pub fn invalidate_register(&mut self, reg: Register) {
-        self.tracked.remove(&reg);
+        self.clean.clear();
     }
 
     /// Drops all caller-saved registers from tracking to reflect callee clobbering.
     pub fn invalidate_volatiles<C: Convention>(&mut self, convention: &C) {
         let volatiles = convention.volatile_registers();
         self.tracked.retain(|reg, _| !volatiles.contains(reg));
+        self.clean.retain(|reg| !volatiles.contains(reg));
     }
 
     /// Returns the first volatile register not currently holding a tracked value.
@@ -70,29 +97,34 @@ impl Registers {
         volatiles.copied().find(|r| !self.tracked.contains_key(r))
     }
 
-    /// Picks a volatile symbol to evict, removes it from tracking, and returns its register and stack offset.
-    pub fn evict(&mut self, volatiles: &[Register]) -> (Register, SymbolId) {
-        let (reg, sym) = self
+    /// Returns the first tracked volatile symbol matching the predicate, or the first volatile symbol if no match is found.
+    pub fn evictable(
+        &self,
+        volatiles: &[Register],
+        predicate: impl Fn(SymbolId) -> bool,
+    ) -> (Register, SymbolId) {
+        let candidates = self
             .tracked
             .iter()
-            .find_map(|(r, v)| {
-                if !volatiles.contains(r) {
-                    return None;
-                }
-                if let Value::Symbol(s) = v {
-                    Some((*r, *s))
-                } else {
-                    None
-                }
+            .filter_map(|(&reg, &val)| match val {
+                Value::Symbol(sym) if volatiles.contains(&reg) => Some((reg, sym)),
+                _ => None,
             })
-            .unwrap_or_else(|| unreachable!());
+            .collect::<Vec<(Register, SymbolId)>>();
 
-        self.tracked.remove(&reg);
-
-        (reg, sym)
+        candidates
+            .iter()
+            .copied()
+            .find(|&(_, sym)| predicate(sym))
+            .or_else(|| candidates.first().copied())
+            .unwrap()
     }
 
-    pub fn get_register_for_value(&self, val: Value) -> Option<Register> {
+    pub fn tracked_value(&self, reg: Register) -> Option<Value> {
+        self.tracked.get(&reg).copied()
+    }
+
+    pub fn tracked_register(&self, val: Value) -> Option<Register> {
         self.tracked
             .iter()
             .find(|(_, v)| **v == val)
@@ -100,32 +132,28 @@ impl Registers {
     }
 
     /// Resolves where a value currently lives, preferring live register state over the stack.
-    pub fn locate<C: Convention>(
+    pub fn locate(
         &self,
         val: Value,
-        emitter: &Emitter<C>,
-        ctx: &FunctionContext,
+        blobs: &Vec<CodeLabel>,
+        slots: &BTreeMap<SymbolId, i32>,
     ) -> Operand {
         match val {
             Value::Constant(c) => Operand::Immediate(c),
-            Value::String(id) => Operand::String(emitter.data_labels[id]),
+            Value::String(id) => Operand::String(blobs[id]),
             Value::Symbol(s) => {
-                if let Some(reg) = self.get_register_for_value(Value::Symbol(s)) {
+                if let Some(reg) = self.tracked_register(Value::Symbol(s)) {
                     return Operand::Register(reg);
                 }
-                if let Some(&offset) = ctx.slots.get(&s) {
+                if let Some(&offset) = slots.get(&s) {
                     assert!(
-                        self.is_dirty(s),
-                        "attempted to load symbol '{:?}' of function '{}' from stack slot before it was ever stored",
+                        self.is_written(s),
+                        "attempted to load symbol '{:?}' from stack slot before it was ever stored",
                         s,
-                        ctx.name
                     );
                     return Operand::Stack(offset);
                 }
-                panic!(
-                    "symbol '{:?}' of function '{}' has no register nor a stack slot",
-                    s, ctx.name
-                )
+                panic!("symbol '{:?}' has no register nor a stack slot", s,)
             }
             _ => unreachable!(),
         }

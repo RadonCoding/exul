@@ -1,5 +1,5 @@
 use crate::{context::FunctionContext, convention::Convention, emitter::Emitter, macros::r64};
-use iced_x86::code_asm::{qword_ptr, rsp};
+use iced_x86::code_asm::{ptr, qword_ptr, rsp};
 use intermediate::{FunctionId, InstructionKind, SymbolId, Value};
 use std::error::Error;
 
@@ -47,7 +47,14 @@ impl<C: Convention> Emitter<C> {
         self.spill_volatiles(ctx)?;
 
         let shadow = self.convention.shadow_space() as i32;
-        let argument_registers = self.convention.argument_registers().len();
+        let regs = self.convention.argument_registers().len();
+        let extra = args.len().saturating_sub(regs);
+        let raw = shadow + (extra as i32 * 8);
+        let stack = ((raw + 15) & !15) as i32;
+
+        if stack > 0 {
+            self.asm.sub(rsp, stack)?;
+        }
 
         for (i, &arg) in args.iter().enumerate() {
             if let Some(reg) = self.convention.argument_reg(i) {
@@ -55,15 +62,19 @@ impl<C: Convention> Emitter<C> {
             } else {
                 let reg = self.scratch(ctx)?;
                 self.load_to_register(ctx, arg, reg)?;
-                let offset = shadow + ((i - argument_registers) as i32 * 8);
-                self.asm.mov(qword_ptr(rsp + offset), r64!(reg))?;
+                let offset = shadow + (i - regs) as i32 * 8;
+                self.asm.mov(ptr(rsp + offset), r64!(reg))?;
             }
         }
 
-        if let Some(&slot) = self.imports.get(&callee) {
-            self.asm.call(qword_ptr(slot))?;
+        if let Some(&import) = self.imports.get(&callee) {
+            self.asm.call(qword_ptr(import))?;
         } else {
             self.asm.call(self.functions[&callee])?;
+        }
+
+        if stack > 0 {
+            self.asm.add(rsp, stack)?;
         }
 
         ctx.registers.invalidate_volatiles(&self.convention);
