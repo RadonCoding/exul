@@ -7,6 +7,22 @@ use crate::{
     lex::{Token, TokenKind},
 };
 use std::error::Error;
+use std::string::String;
+
+pub trait Parse<'a>: Sized {
+    fn parse(parser: &mut Parser<'a>) -> Result<Self, Box<dyn Error>>;
+}
+
+pub fn parse(tokens: Vec<Token>) -> Result<Tree, Box<dyn Error>> {
+    let mut parser = Parser::new(tokens);
+    let mut decls = Vec::new();
+
+    while !parser.is_eof() {
+        decls.push(Decl::parse(&mut parser)?);
+    }
+
+    Ok(Tree { decls })
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node<T> {
@@ -85,19 +101,4 @@ impl<'a> Parser<'a> {
         )
         .into()
     }
-}
-
-pub trait Parse<'a>: Sized {
-    fn parse(parser: &mut Parser<'a>) -> Result<Self, Box<dyn Error>>;
-}
-
-pub fn parse(tokens: Vec<Token>) -> Result<Tree, Box<dyn Error>> {
-    let mut parser = Parser::new(tokens);
-    let mut decls = Vec::new();
-
-    while !parser.is_eof() {
-        decls.push(Decl::parse(&mut parser)?);
-    }
-
-    Ok(Tree { decls })
 }

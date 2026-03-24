@@ -1,17 +1,15 @@
-use std::fmt;
-
 pub mod symbols;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct FunctionId(pub usize);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct SymbolId(pub usize);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct LabelId(pub usize);
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Value {
     Function(FunctionId),
     Symbol(SymbolId),
@@ -59,14 +57,6 @@ impl Builtin {
             Builtin::Resolve => "__resolve__",
             Builtin::Strlen => "strlen",
             Builtin::Print => "print",
-        }
-    }
-
-    pub fn id(&self) -> FunctionId {
-        match self {
-            Builtin::Resolve => FunctionId(0),
-            Builtin::Strlen => FunctionId(1),
-            Builtin::Print => FunctionId(2),
         }
     }
 
@@ -353,19 +343,12 @@ pub struct Context {
 
 impl Context {
     pub fn new() -> Self {
-        let reserved = Builtin::all()
-            .iter()
-            .map(|b| b.id().0)
-            .max()
-            .map(|m| m + 1)
-            .unwrap_or(0);
-
         Self {
             instructions: Vec::new(),
             imports: Vec::new(),
             strings: Vec::new(),
-            functions: reserved,
             loops: Vec::new(),
+            functions: 0,
             symbols: 0,
             labels: 0,
         }
@@ -373,7 +356,7 @@ impl Context {
 
     pub fn reset(&mut self) {
         self.instructions.clear();
-        self.symbols = self.functions;
+        self.symbols = 0;
         self.labels = 0;
     }
 
@@ -406,34 +389,5 @@ impl Context {
         let i = self.strings.len();
         self.strings.push(s);
         i
-    }
-}
-
-impl fmt::Debug for SymbolId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "symbol{}", self.0)
-    }
-}
-
-impl fmt::Debug for FunctionId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "f{}", self.0)
-    }
-}
-
-impl fmt::Debug for LabelId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "L{}", self.0)
-    }
-}
-
-impl fmt::Debug for Value {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Value::Symbol(s) => write!(f, "symbol{}", s.0),
-            Value::Constant(c) => write!(f, "{}", c),
-            Value::Function(id) => write!(f, "function{}", id.0),
-            Value::String(id) => write!(f, "string{}", id),
-        }
     }
 }

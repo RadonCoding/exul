@@ -4,15 +4,18 @@ mod stmt;
 
 use intermediate::symbols::Symbols;
 use intermediate::{Builtin, Context, Function, FunctionId, InstructionKind, Module, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 
 use crate::ast::{self, Tree};
 use crate::lex;
 
 const BOOTSTRAP: &str = "__bootstrap__";
-
 const ENTRY_POINT: &str = "main";
+
+pub fn generate(tree: Tree) -> Result<Module, Box<dyn Error>> {
+    Lowerer::new().generate(tree)
+}
 
 pub trait Generate {
     type Output;
@@ -24,160 +27,189 @@ pub trait Generate {
     ) -> Result<Self::Output, Box<dyn Error>>;
 }
 
-fn compile_builtin(
-    builtin: Builtin,
-    ctx: &mut Context,
-    root: &mut Symbols,
-    functions: &mut Vec<Function>,
-) -> Result<(), Box<dyn Error>> {
-    let tokens = lex::tokenize(builtin.source())?;
-    let tree = ast::parse(tokens)?;
+struct Lowerer {
+    ctx: Context,
+    builtins: HashMap<Builtin, FunctionId>,
+    compiled: HashSet<FunctionId>,
+    functions: Vec<Function>,
+}
 
-    let mut pending = Vec::new();
-    for decl in tree.decls.iter() {
-        let name = decl.name();
-        let id = if name == builtin.name() {
-            builtin.id()
-        } else {
+impl Lowerer {
+    pub fn new() -> Self {
+        let mut ctx = Context::new();
+        let mut builtins = HashMap::new();
+
+        for builtin in Builtin::all() {
             let id = ctx.next_function();
+            builtins.insert(*builtin, id);
+        }
+
+        Self {
+            ctx,
+            builtins,
+            compiled: HashSet::new(),
+            functions: Vec::new(),
+        }
+    }
+
+    fn compile_builtin(
+        &mut self,
+        builtin: Builtin,
+        root: &mut Symbols,
+    ) -> Result<(), Box<dyn Error>> {
+        let id = self.builtins[&builtin];
+
+        let tokens = lex::tokenize(builtin.source())?;
+        let tree = ast::parse(tokens)?;
+
+        let mut pending = Vec::new();
+
+        for decl in tree.decls.iter() {
+            let name = decl.name();
+            let id = if name == builtin.name() {
+                id
+            } else {
+                let id = self.ctx.next_function();
+                root.define(name, Value::Function(id));
+                id
+            };
+            pending.push(id);
+        }
+
+        for (decl, id) in tree.decls.into_iter().zip(pending) {
+            let function = decl.generate(&mut self.ctx, root, id)?;
+            self.functions.push(function);
+        }
+
+        Ok(())
+    }
+
+    pub fn generate(mut self, tree: Tree) -> Result<Module, Box<dyn Error>> {
+        let mut root = Symbols::new(None);
+
+        // Register all builtins in scope
+        for builtin in Builtin::all() {
+            let id = self.builtins[&builtin];
+            root.define(builtin.name().to_string(), Value::Function(id));
+        }
+
+        // Pre-register all user functions before lowering so forward calls resolve.
+        let mut entry = None;
+        let mut pending = Vec::new();
+
+        for decl in tree.decls.iter() {
+            let name = decl.name();
+            let id = self.ctx.next_function();
+            if name == ENTRY_POINT {
+                entry = Some(id);
+            }
             root.define(name, Value::Function(id));
-            id
-        };
-        pending.push(id);
-    }
-
-    for (decl, id) in tree.decls.into_iter().zip(pending) {
-        functions.push(decl.generate(ctx, root, id)?);
-    }
-
-    Ok(())
-}
-
-pub fn generate(tree: Tree) -> Result<Module, Box<dyn Error>> {
-    let mut ctx = Context::new();
-    let mut root = Symbols::new(None);
-
-    // Register all builtins in scope but don't compile them yet.
-    for builtin in Builtin::all() {
-        root.define(builtin.name().to_string(), Value::Function(builtin.id()));
-    }
-
-    // Pre-register all user functions before lowering so forward calls resolve.
-    let mut entry = None;
-    let mut pending = Vec::new();
-
-    for decl in tree.decls.iter() {
-        let name = decl.name();
-        let id = ctx.next_function();
-        if name == ENTRY_POINT {
-            entry = Some(id);
+            pending.push(id);
         }
-        root.define(name, Value::Function(id));
-        pending.push(id);
-    }
 
-    let mut functions = Vec::new();
+        for (decl, id) in tree.decls.into_iter().zip(pending) {
+            let function = decl.generate(&mut self.ctx, &mut root, id)?;
+            self.functions.push(function);
+        }
 
-    for (decl, id) in tree.decls.into_iter().zip(pending) {
-        functions.push(decl.generate(&mut ctx, &mut root, id)?);
-    }
-
-    let mut compiled = HashSet::new();
-
-    // Compile standard library on demand - repeat until no new ones are referenced.
-    loop {
-        let required = Builtin::all()
-            .iter()
-            .filter(|b| {
-                !compiled.contains(&b.id())
-                    && functions.iter().any(|f| {
-                        f.instructions
+        // Compile standard library on demand
+        loop {
+            let required = Builtin::all()
+                .iter()
+                .filter(|b| {
+                    let id = self.builtins[b];
+                    !self.compiled.contains(&id)
+                        && self
+                            .functions
                             .iter()
-                            .any(|i| i.kind.called().contains(&b.id()))
-                    })
-            })
-            .copied()
-            .collect::<Vec<Builtin>>();
+                            .any(|f| f.instructions.iter().any(|i| i.kind.called().contains(&id)))
+                })
+                .copied()
+                .collect::<Vec<Builtin>>();
 
-        if required.is_empty() {
-            break;
+            if required.is_empty() {
+                break;
+            }
+
+            for builtin in required {
+                let id = self.builtins[&builtin];
+                self.compiled.insert(id);
+                self.compile_builtin(builtin, &mut root)?;
+            }
         }
 
-        for builtin in required {
-            compiled.insert(builtin.id());
-            compile_builtin(builtin, &mut ctx, &mut root, &mut functions)?;
+        let imports = self.ctx.imports.clone();
+        let resolve_id = self.builtins[&Builtin::Resolve];
+
+        if !imports.is_empty() {
+            if !self.compiled.contains(&resolve_id) {
+                self.compile_builtin(Builtin::Resolve, &mut root)?;
+            }
+            let stub = self.bootstrap(entry, resolve_id);
+            self.functions.insert(0, stub);
         }
+
+        let entry = if !imports.is_empty() {
+            Some(0)
+        } else {
+            self.functions.iter().position(|f| Some(f.id) == entry)
+        };
+
+        Ok(Module {
+            entry,
+            imports,
+            strings: self.ctx.strings,
+            functions: self.functions,
+        })
     }
 
-    let imports = ctx.imports.clone();
+    fn bootstrap(&mut self, entry: Option<FunctionId>, resolve_id: FunctionId) -> Function {
+        let id = self.ctx.next_function();
 
-    if !imports.is_empty() {
-        if !compiled.contains(&Builtin::Resolve.id()) {
-            compile_builtin(Builtin::Resolve, &mut ctx, &mut root, &mut functions)?;
+        self.ctx.reset();
+
+        for import in self.ctx.imports.clone() {
+            let module = Value::String(self.ctx.string(import.module.clone()));
+            let function = Value::String(self.ctx.string(import.function.clone()));
+            let result = self.ctx.next_symbol();
+            self.ctx.emit(
+                InstructionKind::Call {
+                    dst: result,
+                    callee: resolve_id,
+                    args: vec![module, function],
+                },
+                0,
+            );
+            self.ctx.emit(
+                InstructionKind::Import {
+                    import: import.id,
+                    src: Value::Symbol(result),
+                },
+                0,
+            );
         }
-        let stub = bootstrap(&mut ctx, entry);
-        functions.insert(0, stub);
-    }
 
-    let entry = if !imports.is_empty() {
-        Some(0)
-    } else {
-        functions.iter().position(|f| Some(f.id) == entry)
-    };
+        if let Some(entry) = entry {
+            let dst = self.ctx.next_symbol();
+            self.ctx.emit(
+                InstructionKind::Call {
+                    dst,
+                    callee: entry,
+                    args: vec![],
+                },
+                0,
+            );
+        }
 
-    Ok(Module {
-        entry,
-        imports,
-        strings: ctx.strings,
-        functions,
-    })
-}
+        self.ctx
+            .emit(InstructionKind::Return(Value::Constant(0)), 0);
 
-fn bootstrap(ctx: &mut Context, entry: Option<FunctionId>) -> Function {
-    let id = ctx.next_function();
-
-    ctx.reset();
-
-    for import in ctx.imports.clone() {
-        let module = Value::String(ctx.string(import.module.clone()));
-        let function = Value::String(ctx.string(import.function.clone()));
-        let result = ctx.next_symbol();
-        ctx.emit(
-            InstructionKind::Call {
-                dst: result,
-                callee: Builtin::Resolve.id(),
-                args: vec![module, function],
-            },
-            0,
-        );
-        ctx.emit(
-            InstructionKind::Import {
-                import: import.id,
-                src: Value::Symbol(result),
-            },
-            0,
-        );
-    }
-
-    if let Some(entry) = entry {
-        let dst = ctx.next_symbol();
-        ctx.emit(
-            InstructionKind::Call {
-                dst,
-                callee: entry,
-                args: vec![],
-            },
-            0,
-        );
-    }
-
-    ctx.emit(InstructionKind::Return(Value::Constant(0)), 0);
-
-    Function {
-        id,
-        name: BOOTSTRAP.to_string(),
-        instructions: ctx.instructions.clone(),
-        params: vec![],
-        capacity: ctx.symbols,
+        Function {
+            id,
+            name: BOOTSTRAP.to_string(),
+            instructions: self.ctx.instructions.clone(),
+            params: vec![],
+            capacity: self.ctx.symbols,
+        }
     }
 }

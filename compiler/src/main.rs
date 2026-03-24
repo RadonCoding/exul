@@ -81,9 +81,43 @@ fn build_symbols(assembly: &Assembly, module: &Module, ip: u64) -> HashMap<u64, 
     map
 }
 
-fn dump(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
-    let bytes = &assembly.bytes;
+fn print_ir(module: &Module, filter: Option<&String>) {
+    let mut first = true;
+    for f in &module.functions {
+        if let Some(filter) = filter {
+            if &f.name != filter {
+                continue;
+            }
+        }
+
+        if !first {
+            println!();
+        }
+
+        print!("{}(", f.name);
+
+        for (i, param) in f.params.iter().enumerate() {
+            if i > 0 {
+                print!(", ");
+            }
+            print!("{:?}", param);
+        }
+
+        println!(") {{");
+
+        for instruction in &f.instructions {
+            println!("  {:?}", instruction.kind);
+        }
+
+        println!("}}");
+
+        first = false;
+    }
+}
+
+fn print_asm(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
     let symbols = build_symbols(assembly, module, ip);
+
     let imports_start = assembly.blobs.last().map(|b| b.offset + b.len).unwrap_or(0);
     let imports_end = imports_start + module.imports.len() * 8;
 
@@ -93,13 +127,15 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
         .set_space_after_operand_separator(true);
 
     let mut entries = Vec::new();
+
     let mut max_bytes = 0;
     let mut max_mnemonic = 0;
+
     let mut offset = 0;
 
-    while offset < bytes.len() {
+    while offset < assembly.bytes.len() {
         if let Some(blob) = assembly.blobs.iter().find(|b| b.offset == offset) {
-            let hex = bytes[offset..offset + blob.len]
+            let hex = assembly.bytes[offset..offset + blob.len]
                 .iter()
                 .map(|b| format!("{:02x}", b))
                 .collect::<String>();
@@ -125,7 +161,7 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
         }
 
         if offset >= imports_start && offset < imports_end {
-            let hex = bytes[offset..offset + 8]
+            let hex = assembly.bytes[offset..offset + 8]
                 .iter()
                 .map(|b| format!("{:02x}", b))
                 .collect::<String>();
@@ -138,7 +174,7 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
 
         let mut decoder = Decoder::with_ip(
             64,
-            &bytes[offset..],
+            &assembly.bytes[offset..],
             ip + offset as u64,
             DecoderOptions::NONE,
         );
@@ -150,7 +186,7 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
         let instruction = decoder.decode();
         let len = instruction.len();
 
-        let hex = bytes[offset..offset + len]
+        let hex = assembly.bytes[offset..offset + len]
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect::<String>();
@@ -249,32 +285,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut module = lower::generate(tree)?;
     elapsed += start.elapsed();
 
+    if args.ir {
+        print_ir(&module, args.function.as_ref());
+        space = true;
+    }
+
     let start = Instant::now();
     peephole::optimize(&mut module);
     elapsed += start.elapsed();
 
     if args.ir {
-        let mut ir_any = false;
-        for f in &module.functions {
-            if let Some(filter) = &args.function {
-                if &f.name != filter {
-                    continue;
-                }
-            }
-
-            if space || ir_any {
-                println!();
-            }
-            println!("{}:", f.name);
-
-            for instruction in &f.instructions {
-                println!("  {:?}", instruction.kind);
-            }
-            ir_any = true;
+        if space {
+            println!();
         }
-        if ir_any {
-            space = true;
-        }
+        println!("--- optimized ---");
+        println!();
+        print_ir(&module, args.function.as_ref());
+        space = true;
     }
 
     let start = Instant::now();
@@ -285,13 +312,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         if space {
             println!();
         }
-        dump(&assembly, &module, args.ip, args.function.as_deref());
+        print_asm(&assembly, &module, args.ip, args.function.as_deref());
         space = true;
     }
 
     if space {
         println!();
     }
+
     println!(
         "Compilation took {}.{:03} seconds.",
         elapsed.as_secs(),

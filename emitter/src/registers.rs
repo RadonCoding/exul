@@ -116,7 +116,7 @@ impl Registers {
                 if let Some(&offset) = ctx.slots.get(&s) {
                     assert!(
                         self.is_dirty(s),
-                        "attempted to load '{:?}' of function '{}' from stack slot before it was ever stored",
+                        "attempted to load symbol '{:?}' of function '{}' from stack slot before it was ever stored",
                         s,
                         ctx.name
                     );
