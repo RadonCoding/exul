@@ -7,7 +7,7 @@ pub struct Allocator {
     offset: i32,
 }
 
-fn compute_live_ranges(instructions: &[Instruction]) -> HashMap<SymbolId, Range<usize>> {
+pub fn compute_live_ranges(instructions: &[Instruction]) -> HashMap<SymbolId, Range<usize>> {
     let mut ranges = HashMap::new();
     let mut labels = HashMap::new();
 

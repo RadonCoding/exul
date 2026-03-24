@@ -1,7 +1,10 @@
-use std::{collections::BTreeMap, error::Error};
+use std::{
+    collections::{BTreeMap, HashMap},
+    error::Error,
+};
 
 use crate::{
-    allocator::Allocator,
+    allocator::{self, Allocator},
     assembly::{Assembly, Blob},
     context::FunctionContext,
     convention::Convention,
@@ -179,6 +182,26 @@ impl<C: Convention> Emitter<C> {
         Ok(())
     }
 
+    fn store(
+        &mut self,
+        ctx: &mut FunctionContext,
+        sym: SymbolId,
+        reg: Register,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(&offset) = ctx.slots.get(&sym) {
+            let is_live = ctx
+                .liveness
+                .get(&sym)
+                .map_or(false, |range| range.end > ctx.cursor);
+
+            if is_live {
+                self.asm.mov(ptr(rbp - offset), r64!(reg))?;
+                ctx.registers.set_dirty(sym);
+            }
+        }
+        Ok(())
+    }
+
     /// Synchronizes a symbol with its stack slot and marks it as dirty
     fn spill_symbol(
         &mut self,
@@ -186,11 +209,8 @@ impl<C: Convention> Emitter<C> {
         sym: SymbolId,
         reg: Register,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(&offset) = ctx.slots.get(&sym) {
-            if !ctx.registers.is_dirty(sym) {
-                self.asm.mov(ptr(rbp - offset), r64!(reg))?;
-                ctx.registers.set_dirty(sym);
-            }
+        if !ctx.registers.is_dirty(sym) {
+            self.store(ctx, sym, reg)?;
         }
         Ok(())
     }
@@ -202,10 +222,7 @@ impl<C: Convention> Emitter<C> {
         dst: SymbolId,
         reg: Register,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(&offset) = ctx.slots.get(&dst) {
-            self.asm.mov(ptr(rbp - offset), r64!(reg))?;
-            ctx.registers.set_dirty(dst);
-        }
+        self.store(ctx, dst, reg)?;
         ctx.registers.track(reg, Value::Symbol(dst));
         Ok(())
     }
@@ -390,6 +407,8 @@ impl<C: Convention> Emitter<C> {
 
         let epilogue = self.asm.create_label();
 
+        let liveness = allocator::compute_live_ranges(&function.instructions);
+
         let mut ctx = FunctionContext {
             slots: BTreeMap::new(),
             labels: BTreeMap::new(),
@@ -398,6 +417,7 @@ impl<C: Convention> Emitter<C> {
             cursor: 0,
             instructions: &function.instructions,
             registers: Registers::new(),
+            liveness,
         };
 
         for (i, &sym) in function.params.iter().enumerate() {
