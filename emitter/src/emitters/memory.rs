@@ -20,23 +20,23 @@ impl<C: Convention> Emitter<C> {
         let dreg = self.scratch(ctx)?;
 
         // Resolve the address directly to avoid clobbering live values with an intermediate move.
-        let src_loc = ctx.registers.locate(src, &ctx.slots, &self.data_labels);
-        let src64 = match src_loc {
-            Operand::Register(r) => r64!(r),
+        let sloc = ctx.registers.locate(src, &self, &ctx);
+        let sreg = match sloc {
+            Operand::Register(r) => r,
             Operand::Stack(offset) => {
-                let tmp_reg = self.scratch(ctx)?;
-                self.asm.mov(r64!(tmp_reg), qword_ptr(rbp - offset))?;
-                ctx.registers.track(tmp_reg, src);
-                r64!(tmp_reg)
+                let sreg = self.scratch(ctx)?;
+                self.asm.mov(r64!(sreg), qword_ptr(rbp - offset))?;
+                ctx.registers.track(sreg, src);
+                sreg
             }
             _ => unreachable!(),
         };
 
         match size {
-            Memory::Byte => self.asm.movzx(r64!(dreg), byte_ptr(src64))?,
-            Memory::Word => self.asm.movzx(r64!(dreg), word_ptr(src64))?,
-            Memory::Dword => self.asm.mov(r32!(dreg), dword_ptr(src64))?,
-            Memory::Qword => self.asm.mov(r64!(dreg), qword_ptr(src64))?,
+            Memory::Byte => self.asm.movzx(r64!(dreg), byte_ptr(sreg))?,
+            Memory::Word => self.asm.movzx(r64!(dreg), word_ptr(sreg))?,
+            Memory::Dword => self.asm.mov(r32!(dreg), dword_ptr(sreg))?,
+            Memory::Qword => self.asm.mov(r64!(dreg), qword_ptr(sreg))?,
         }
 
         self.spill_and_track(ctx, dst, dreg)?;

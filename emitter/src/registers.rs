@@ -1,4 +1,4 @@
-use crate::convention::Convention;
+use crate::{context::FunctionContext, convention::Convention, emitter::Emitter};
 use iced_x86::{Register, code_asm::CodeLabel};
 use intermediate::{SymbolId, Value};
 use std::collections::{
@@ -100,28 +100,32 @@ impl Registers {
     }
 
     /// Resolves where a value currently lives, preferring live register state over the stack.
-    pub fn locate(
+    pub fn locate<C: Convention>(
         &self,
         val: Value,
-        slots: &BTreeMap<SymbolId, i32>,
-        data: &[CodeLabel],
+        emitter: &Emitter<C>,
+        ctx: &FunctionContext,
     ) -> Operand {
         match val {
             Value::Constant(c) => Operand::Immediate(c),
-            Value::String(id) => Operand::String(data[id]),
+            Value::String(id) => Operand::String(emitter.data_labels[id]),
             Value::Symbol(s) => {
                 if let Some(reg) = self.get_register_for_value(Value::Symbol(s)) {
                     return Operand::Register(reg);
                 }
-                if let Some(&offset) = slots.get(&s) {
+                if let Some(&offset) = ctx.slots.get(&s) {
                     assert!(
                         self.is_dirty(s),
-                        "attempted to load '{:?}' from stack slot before it was ever stored",
-                        s
+                        "attempted to load '{:?}' of function '{}' from stack slot before it was ever stored",
+                        s,
+                        ctx.name
                     );
                     return Operand::Stack(offset);
                 }
-                unreachable!("symbol {:?} has no register nor a stack slot", s)
+                panic!(
+                    "symbol '{:?}' of function '{}' has no register nor a stack slot",
+                    s, ctx.name
+                )
             }
             _ => unreachable!(),
         }

@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    error::Error,
-};
+use std::{collections::BTreeMap, error::Error};
 
 use crate::{
     allocator::{self, Allocator},
@@ -66,7 +63,7 @@ impl<C: Convention> Emitter<C> {
         val: Value,
         reg: Register,
     ) -> Result<(), Box<dyn Error>> {
-        let loc = ctx.registers.locate(val, &ctx.slots, &self.data_labels);
+        let loc = ctx.registers.locate(val, self, &ctx);
 
         match loc {
             Operand::Register(r) if r == reg => return Ok(()),
@@ -102,7 +99,7 @@ impl<C: Convention> Emitter<C> {
         right: Value,
         reg: Register,
     ) -> Result<Operand, Box<dyn Error>> {
-        let rloc = ctx.registers.locate(right, &ctx.slots, &self.data_labels);
+        let rloc = ctx.registers.locate(right, self, &ctx);
 
         let rloc = match rloc {
             Operand::Register(r) if r == reg => {
@@ -189,12 +186,7 @@ impl<C: Convention> Emitter<C> {
         reg: Register,
     ) -> Result<(), Box<dyn Error>> {
         if let Some(&offset) = ctx.slots.get(&sym) {
-            let is_live = ctx
-                .liveness
-                .get(&sym)
-                .map_or(false, |range| range.end > ctx.cursor);
-
-            if is_live {
+            if ctx.is_live(sym) || ctx.will_be_live(sym) {
                 self.asm.mov(ptr(rbp - offset), r64!(reg))?;
                 ctx.registers.set_dirty(sym);
             }
@@ -410,6 +402,7 @@ impl<C: Convention> Emitter<C> {
         let liveness = allocator::compute_live_ranges(&function.instructions);
 
         let mut ctx = FunctionContext {
+            name: function.name.to_string(),
             slots: BTreeMap::new(),
             labels: BTreeMap::new(),
             pending: Vec::new(),
@@ -423,9 +416,8 @@ impl<C: Convention> Emitter<C> {
         for (i, &sym) in function.params.iter().enumerate() {
             if let Some(reg) = self.convention.argument_reg(i) {
                 ctx.registers.track(reg, Value::Symbol(sym));
-            } else {
-                ctx.registers.set_dirty(sym);
             }
+            ctx.registers.set_dirty(sym);
         }
 
         self.allocate(&mut ctx, &function.params);
@@ -446,7 +438,11 @@ impl<C: Convention> Emitter<C> {
 
         for (i, &sym) in function.params.iter().enumerate() {
             if let Some(reg) = self.convention.argument_reg(i) {
-                self.spill_symbol(&mut ctx, sym, reg)?;
+                if ctx.is_live(sym) {
+                    self.store(&mut ctx, sym, reg)?;
+                } else {
+                    ctx.registers.set_dirty(sym);
+                }
             }
         }
 

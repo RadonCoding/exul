@@ -305,6 +305,17 @@ impl InstructionKind {
             _ => vec![],
         }
     }
+
+    /// Labels this instruction can jump to.
+    pub fn targets(&self) -> Vec<LabelId> {
+        match self {
+            InstructionKind::Jump(l) => vec![*l],
+            InstructionKind::JumpIfFalse { dst, .. }
+            | InstructionKind::JumpIfEq { dst, .. }
+            | InstructionKind::JumpIfNotEq { dst, .. } => vec![*dst],
+            _ => vec![],
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -1,6 +1,6 @@
 use crate::convention::Convention;
 use intermediate::{Instruction, InstructionKind, SymbolId};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 
 pub struct Allocator {
@@ -12,40 +12,56 @@ pub fn compute_live_ranges(instructions: &[Instruction]) -> HashMap<SymbolId, Ra
     let mut labels = HashMap::new();
 
     for (i, instruction) in instructions.iter().enumerate() {
-        if let InstructionKind::Label(id) = &instruction.kind {
-            labels.insert(*id, i);
+        if let InstructionKind::Label(l) = instruction.kind {
+            labels.insert(l, i);
         }
+    }
 
-        for sym in instruction.kind.written_symbols() {
-            let r = ranges.entry(sym).or_insert(i..i);
-            if i >= r.end {
-                r.end = i;
+    let mut edges = vec![Vec::new(); instructions.len()];
+
+    for (i, instruction) in instructions.iter().enumerate() {
+        for target in instruction.kind.targets() {
+            if let Some(&t) = labels.get(&target) {
+                edges[i].push(t);
             }
         }
+        if i + 1 < instructions.len() && !matches!(instruction.kind, InstructionKind::Jump(_)) {
+            edges[i].push(i + 1);
+        }
+    }
 
-        for sym in instruction.kind.read_symbols() {
-            if let Some(r) = ranges.get_mut(&sym) {
-                if i >= r.end {
-                    r.end = i;
-                }
+    let mut inflows = vec![HashSet::new(); instructions.len()];
+
+    let mut dirty = true;
+
+    while dirty {
+        dirty = false;
+
+        for i in (0..instructions.len()).rev() {
+            let mut aggregate = HashSet::new();
+
+            for &e in &edges[i] {
+                aggregate.extend(inflows[e].iter().copied());
+            }
+            for w in instructions[i].kind.written_symbols() {
+                aggregate.remove(&w);
+            }
+            for r in instructions[i].kind.read_symbols() {
+                aggregate.insert(r);
+            }
+            if aggregate != inflows[i] {
+                inflows[i] = aggregate;
+                dirty = true;
             }
         }
     }
 
-    for (jump, instruction) in instructions.iter().enumerate() {
-        let target = match &instruction.kind {
-            InstructionKind::Jump(id) => id,
-            _ => continue,
-        };
-
-        if let Some(&target) = labels.get(target) {
-            if target < jump {
-                for r in ranges.values_mut() {
-                    if r.end >= target && r.end <= jump && r.start <= jump {
-                        r.end = jump;
-                    }
-                }
-            }
+    for (i, set) in inflows.iter().enumerate() {
+        for &s in set.iter() {
+            ranges
+                .entry(s)
+                .and_modify(|r: &mut Range<usize>| r.end = i + 1)
+                .or_insert(i..(i + 1));
         }
     }
 
@@ -75,26 +91,18 @@ impl Allocator {
         slots: &mut BTreeMap<SymbolId, i32>,
         instructions: &[Instruction],
     ) {
-        let ranges = compute_live_ranges(&instructions);
-        let mut ordered = ranges
+        let ranges = compute_live_ranges(instructions);
+        let written = instructions
             .iter()
-            .filter(|(s, _)| !slots.contains_key(s))
-            .collect::<Vec<(&SymbolId, &Range<usize>)>>();
+            .flat_map(|i| i.kind.written_symbols())
+            .collect::<HashSet<SymbolId>>();
 
-        ordered.sort_by_key(|(_, r)| r.start);
-
-        let mut pool = Vec::new();
-
-        for (&sym, range) in ordered {
-            if let Some(entry) = pool
-                .iter_mut()
-                .find(|(_, last_use)| *last_use < range.start)
-            {
-                slots.insert(sym, entry.0);
-                entry.1 = range.end;
-            } else {
+        for (&sym, range) in ranges.iter() {
+            if slots.contains_key(&sym) {
+                continue;
+            }
+            if written.contains(&sym) && range.start < range.end {
                 slots.insert(sym, self.offset);
-                pool.push((self.offset, range.end));
                 self.offset += 8;
             }
         }

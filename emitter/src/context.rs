@@ -9,6 +9,7 @@ use intermediate::{Instruction, LabelId, SymbolId};
 use crate::registers::Registers;
 
 pub(crate) struct FunctionContext<'a> {
+    pub(crate) name: String,
     pub(crate) slots: BTreeMap<SymbolId, i32>,
     pub(crate) labels: BTreeMap<LabelId, usize>,
     pub(crate) pending: Vec<LabelId>,
@@ -17,4 +18,25 @@ pub(crate) struct FunctionContext<'a> {
     pub(crate) instructions: &'a [Instruction],
     pub(crate) registers: Registers,
     pub(crate) liveness: HashMap<SymbolId, Range<usize>>,
+}
+
+impl<'a> FunctionContext<'a> {
+    /// Whether the symbol is live at the current cursor position.
+    pub(crate) fn is_live(&self, sym: SymbolId) -> bool {
+        self.liveness.get(&sym).map_or(false, |range| {
+            range.start <= self.cursor && self.cursor < range.end
+        })
+    }
+
+    /// Whether the symbol will be live after the current instruction.
+    pub(crate) fn will_be_live(&self, sym: SymbolId) -> bool {
+        self.liveness
+            .get(&sym)
+            .map_or(false, |range| self.cursor + 1 < range.end)
+    }
+
+    /// Whether the symbol is live at any point in the function.
+    pub(crate) fn is_ever_live(&self, sym: SymbolId) -> bool {
+        self.liveness.contains_key(&sym)
+    }
 }

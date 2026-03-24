@@ -93,7 +93,6 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
         .set_space_after_operand_separator(true);
 
     let mut entries = Vec::new();
-
     let mut max_bytes = 0;
     let mut max_mnemonic = 0;
     let mut offset = 0;
@@ -167,13 +166,13 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
         offset += len;
     }
 
-    let mut was_label = false;
+    let mut was_label = true;
     let mut printing = filter.is_none();
 
     for (address, hex, output) in &entries {
         if let Some(name) = symbols.get(address) {
-            if let Some(filter) = filter {
-                printing = name == filter;
+            if let Some(f) = filter {
+                printing = name == f;
             } else {
                 printing = true;
             }
@@ -217,14 +216,13 @@ fn dump(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) {
             println!("{}", output);
         }
     }
-
-    println!();
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let input = fs::read(&args.input)?;
     let mut elapsed = std::time::Duration::ZERO;
+    let mut space = false;
 
     let start = Instant::now();
     let tokens = lex::tokenize(&input)?;
@@ -232,6 +230,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if args.tokens {
         println!("{:#?}", tokens);
+        space = true;
     }
 
     let start = Instant::now();
@@ -239,7 +238,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     elapsed += start.elapsed();
 
     if args.ast {
+        if space {
+            println!();
+        }
         println!("{:#?}", tree);
+        space = true;
     }
 
     let start = Instant::now();
@@ -251,6 +254,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     elapsed += start.elapsed();
 
     if args.ir {
+        let mut ir_any = false;
         for f in &module.functions {
             if let Some(filter) = &args.function {
                 if &f.name != filter {
@@ -258,12 +262,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
 
+            if space || ir_any {
+                println!();
+            }
             println!("{}:", f.name);
 
             for instruction in &f.instructions {
                 println!("  {:?}", instruction.kind);
             }
-            println!();
+            ir_any = true;
+        }
+        if ir_any {
+            space = true;
         }
     }
 
@@ -272,11 +282,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     elapsed += start.elapsed();
 
     if args.asm {
+        if space {
+            println!();
+        }
         dump(&assembly, &module, args.ip, args.function.as_deref());
+        space = true;
     }
 
+    if space {
+        println!();
+    }
     println!(
-        "Compilation took {}.{:03} seconds",
+        "Compilation took {}.{:03} seconds.",
         elapsed.as_secs(),
         elapsed.subsec_millis()
     );
