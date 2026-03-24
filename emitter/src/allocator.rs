@@ -86,11 +86,6 @@ impl Liveness {
             .get(&sym)
             .map_or(false, |range| cursor + 1 < range.end)
     }
-
-    /// Get the live range for a symbol.
-    pub fn range(&self, sym: SymbolId) -> Option<&Range<usize>> {
-        self.ranges.get(&sym)
-    }
 }
 
 pub struct Allocator<'a, C: Convention> {
