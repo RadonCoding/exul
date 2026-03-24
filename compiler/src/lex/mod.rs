@@ -162,10 +162,23 @@ fn match_whitespace(input: &[u8]) -> Option<(usize, usize)> {
 fn match_comment(input: &[u8]) -> Option<(usize, usize)> {
     if input.starts_with(b"//") {
         let len = input.iter().take_while(|&&b| b != b'\n').count();
-        Some((len, len))
-    } else {
-        None
+        return Some((len, len));
     }
+
+    if input.starts_with(b"/*") {
+        let mut i = 2;
+
+        while i + 1 < input.len() {
+            if input[i] == b'*' && input[i + 1] == b'/' {
+                let total = i + 2;
+                return Some((total, total));
+            }
+            i += 1;
+        }
+        return None;
+    }
+
+    None
 }
 
 static RULES: &[Rule] = &[

@@ -1,7 +1,10 @@
 use crate::convention::Convention;
 use iced_x86::{Register, code_asm::CodeLabel};
 use intermediate::{SymbolId, Value};
-use std::collections::HashMap;
+use std::collections::{
+    BTreeMap, HashSet,
+    btree_map::{self},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
@@ -13,42 +16,42 @@ pub enum Operand {
 
 pub struct Registers {
     /// Tracks which value currently resides in which register.
-    tracked: HashMap<Register, Value>,
+    tracked: BTreeMap<Register, Value>,
+    /// Tracks which stack slots have been written at least once.
+    dirty: HashSet<SymbolId>,
 }
 
 impl Registers {
     pub fn new() -> Self {
         Self {
-            tracked: HashMap::new(),
+            tracked: BTreeMap::new(),
+            dirty: HashSet::new(),
         }
     }
 
+    pub fn iter(&self) -> btree_map::Iter<'_, Register, Value> {
+        self.tracked.iter()
+    }
+
+    pub fn is_dirty(&self, sym: SymbolId) -> bool {
+        self.dirty.contains(&sym)
+    }
+
+    /// Records that [`SymbolId`]'s stack slot has been physically written to.
+    pub fn set_dirty(&mut self, sym: SymbolId) {
+        self.dirty.insert(sym);
+    }
+
+    /// Tracks a value in a register, replacing any previous location of the same symbol.
     pub fn track(&mut self, reg: Register, val: Value) {
         if let Value::Symbol(s) = val {
-            self.tracked.retain(|r, v| {
-                if let Value::Symbol(id) = v {
-                    *r == reg || *id != s
-                } else {
-                    true
-                }
-            });
+            self.tracked.retain(|_, v| *v != Value::Symbol(s));
         }
         self.tracked.insert(reg, val);
     }
 
     pub fn invalidate(&mut self) {
         self.tracked.clear();
-    }
-
-    /// Drops a single symbol from tracking when it is overwritten or dies.
-    pub fn invalidate_symbol(&mut self, sym: SymbolId) {
-        self.tracked.retain(|_, v| {
-            if let Value::Symbol(s) = v {
-                *s != sym
-            } else {
-                true
-            }
-        });
     }
 
     /// Drops a specific register from tracking when it is about to be clobbered.
@@ -68,21 +71,16 @@ impl Registers {
     }
 
     /// Picks a volatile symbol to evict, removes it from tracking, and returns its register and stack offset.
-    pub fn evict(
-        &mut self,
-        volatiles: &[Register],
-        slots: &HashMap<SymbolId, i32>,
-    ) -> (Register, i32) {
-        let (reg, slot) = self
+    pub fn evict(&mut self, volatiles: &[Register]) -> (Register, SymbolId) {
+        let (reg, sym) = self
             .tracked
             .iter()
             .find_map(|(r, v)| {
                 if !volatiles.contains(r) {
                     return None;
                 }
-
                 if let Value::Symbol(s) = v {
-                    slots.get(s).map(|slot| (*r, *slot))
+                    Some((*r, *s))
                 } else {
                     None
                 }
@@ -91,7 +89,7 @@ impl Registers {
 
         self.tracked.remove(&reg);
 
-        (reg, slot)
+        (reg, sym)
     }
 
     pub fn get_register_for_value(&self, val: Value) -> Option<Register> {
@@ -105,7 +103,7 @@ impl Registers {
     pub fn locate(
         &self,
         val: Value,
-        slots: &HashMap<SymbolId, i32>,
+        slots: &BTreeMap<SymbolId, i32>,
         data: &[CodeLabel],
     ) -> Operand {
         match val {
@@ -116,9 +114,14 @@ impl Registers {
                     return Operand::Register(reg);
                 }
                 if let Some(&offset) = slots.get(&s) {
+                    assert!(
+                        self.is_dirty(s),
+                        "attempted to load '{:?}' from stack slot before it was ever stored",
+                        s
+                    );
                     return Operand::Stack(offset);
                 }
-                unreachable!()
+                unreachable!("symbol {:?} has no register nor a stack slot", s)
             }
             _ => unreachable!(),
         }

@@ -144,25 +144,52 @@ impl Generate for Expr<'_> {
                 let rhs = src.generate(ctx, scope, id)?;
 
                 if let Value::Symbol(s) = lhs {
-                    match op {
-                        BinaryOp::Add => ctx.emit(
-                            InstructionKind::Add {
-                                dst: s,
-                                left: lhs,
-                                right: rhs,
-                            },
-                            self.0.position,
-                        ),
-                        BinaryOp::Sub => ctx.emit(
-                            InstructionKind::Sub {
-                                dst: s,
-                                left: lhs,
-                                right: rhs,
-                            },
-                            self.0.position,
-                        ),
-                        _ => {}
-                    }
+                    let kind = match op {
+                        BinaryOp::Add => InstructionKind::Add {
+                            dst: s,
+                            left: lhs,
+                            right: rhs,
+                        },
+                        BinaryOp::Sub => InstructionKind::Sub {
+                            dst: s,
+                            left: lhs,
+                            right: rhs,
+                        },
+                        BinaryOp::Mul => InstructionKind::Mul {
+                            dst: s,
+                            left: lhs,
+                            right: rhs,
+                        },
+                        BinaryOp::And => InstructionKind::And {
+                            dst: s,
+                            left: lhs,
+                            right: rhs,
+                        },
+                        BinaryOp::Or => InstructionKind::Or {
+                            dst: s,
+                            left: lhs,
+                            right: rhs,
+                        },
+                        BinaryOp::Xor => InstructionKind::Xor {
+                            dst: s,
+                            left: lhs,
+                            right: rhs,
+                        },
+                        BinaryOp::Shl => InstructionKind::Shl {
+                            dst: s,
+                            left: lhs,
+                            right: rhs,
+                        },
+                        BinaryOp::Shr => InstructionKind::Shr {
+                            dst: s,
+                            left: lhs,
+                            right: rhs,
+                        },
+                        _ => unreachable!(),
+                    };
+
+                    ctx.emit(kind, self.0.position);
+
                     return Ok(Value::Symbol(s));
                 }
 

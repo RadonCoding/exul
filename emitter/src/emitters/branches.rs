@@ -1,8 +1,5 @@
-use crate::{
-    convention::Convention,
-    {Emitter, FunctionContext},
-};
-use iced_x86::code_asm::{get_gpr64, qword_ptr, rsp};
+use crate::{context::FunctionContext, convention::Convention, emitter::Emitter, macros::r64};
+use iced_x86::code_asm::{qword_ptr, rsp};
 use intermediate::{FunctionId, InstructionKind, SymbolId, Value};
 use std::error::Error;
 
@@ -16,7 +13,7 @@ impl<C: Convention> Emitter<C> {
             InstructionKind::JumpIfFalse { cond, dst } => {
                 let reg = self.scratch(ctx)?;
                 self.load_to_register(ctx, cond, reg)?;
-                let cond64 = get_gpr64(reg).unwrap();
+                let cond64 = r64!(reg);
                 self.asm.test(cond64, cond64)?;
                 let l = self.get_label(ctx, dst);
                 self.asm.jz(l)?;
@@ -48,7 +45,7 @@ impl<C: Convention> Emitter<C> {
         callee: FunctionId,
         args: Vec<Value>,
     ) -> Result<(), Box<dyn Error>> {
-        ctx.registers.invalidate_symbol(dst);
+        self.spill_volatiles(ctx)?;
 
         let shadow = self.convention.shadow_space() as i32;
         let argument_registers = self.convention.argument_registers().len();
@@ -60,8 +57,7 @@ impl<C: Convention> Emitter<C> {
                 let reg = self.scratch(ctx)?;
                 self.load_to_register(ctx, arg, reg)?;
                 let offset = shadow + ((i - argument_registers) as i32 * 8);
-                self.asm
-                    .mov(qword_ptr(rsp + offset), get_gpr64(reg).unwrap())?;
+                self.asm.mov(qword_ptr(rsp + offset), r64!(reg))?;
             }
         }
 
@@ -73,11 +69,8 @@ impl<C: Convention> Emitter<C> {
 
         ctx.registers.invalidate_volatiles(&self.convention);
 
-        if self.is_live(ctx, dst) {
-            self.spill(ctx, dst, self.ret())?;
-        } else {
-            ctx.registers.track(self.ret(), Value::Symbol(dst));
-        }
+        ctx.registers
+            .track(self.convention.return_register(), Value::Symbol(dst));
 
         Ok(())
     }
@@ -87,8 +80,7 @@ impl<C: Convention> Emitter<C> {
         ctx: &mut FunctionContext,
         val: Value,
     ) -> Result<(), Box<dyn Error>> {
-        let ret = self.ret();
-        self.load_to_register(ctx, val, ret)?;
+        self.load_to_register(ctx, val, self.convention.return_register())?;
 
         if ctx.cursor < ctx.instructions.len() - 1 {
             self.asm.jmp(ctx.epilogue)?;

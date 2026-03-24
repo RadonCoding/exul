@@ -116,20 +116,7 @@ impl<'a> Parse<'a> for Stmt<'a> {
 
             let step = Box::new(Stmt::parse_clause(parser)?);
 
-            let body = if parser.match_token(TokenKind::LBrace) {
-                let mut stmts = Vec::new();
-
-                while !parser.check(TokenKind::RBrace) && !parser.is_eof() {
-                    stmts.push(Stmt::parse(parser)?);
-                }
-
-                parser.consume(TokenKind::RBrace, "'}'")?;
-                stmts
-            } else if parser.match_token(TokenKind::Semicolon) {
-                Vec::new()
-            } else {
-                return Err(parser.expected("'{' or ';'"));
-            };
+            let body = Stmt::parse_block(parser)?;
 
             return Ok(Stmt(Node {
                 kind: StmtKind::For {

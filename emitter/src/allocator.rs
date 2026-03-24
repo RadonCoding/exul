@@ -1,13 +1,13 @@
 use crate::convention::Convention;
 use intermediate::{Instruction, InstructionKind, SymbolId};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
 pub struct Allocator {
     offset: i32,
 }
 
-fn compute_live_ranges(instructions: &[Instruction]) -> HashMap<SymbolId, Range<usize>> {
+pub fn compute_live_ranges(instructions: &[Instruction]) -> HashMap<SymbolId, Range<usize>> {
     let mut ranges = HashMap::new();
     let mut labels = HashMap::new();
 
@@ -59,7 +59,11 @@ impl Allocator {
         }
     }
 
-    pub fn allocate_parameters(&mut self, slots: &mut HashMap<SymbolId, i32>, params: &[SymbolId]) {
+    pub fn allocate_parameters(
+        &mut self,
+        slots: &mut BTreeMap<SymbolId, i32>,
+        params: &[SymbolId],
+    ) {
         for &sym in params {
             slots.insert(sym, self.offset);
             self.offset += 8;
@@ -68,7 +72,7 @@ impl Allocator {
 
     pub fn allocate_symbols(
         &mut self,
-        slots: &mut HashMap<SymbolId, i32>,
+        slots: &mut BTreeMap<SymbolId, i32>,
         instructions: &[Instruction],
     ) {
         let ranges = compute_live_ranges(&instructions);

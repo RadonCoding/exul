@@ -3,7 +3,7 @@ mod lex;
 mod lower;
 
 use clap::Parser;
-use emitter::{Assembly, convention::MicrosoftX64};
+use emitter::{assembly::Assembly, convention::MicrosoftX64, peephole};
 use iced_x86::{
     Decoder, DecoderOptions, Formatter, Instruction, MasmFormatter, SymbolResolver, SymbolResult,
 };
@@ -33,7 +33,7 @@ struct Args {
     #[arg(long)]
     asm: bool,
     #[arg(long)]
-    func: Option<String>,
+    function: Option<String>,
 }
 
 struct Symbols(HashMap<u64, String>);
@@ -247,12 +247,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     elapsed += start.elapsed();
 
     let start = Instant::now();
-    let assembly = emitter::emit::<MicrosoftX64>(args.ip, &mut module)?;
+    peephole::optimize(&mut module);
     elapsed += start.elapsed();
 
     if args.ir {
         for f in &module.functions {
-            if let Some(filter) = &args.func {
+            if let Some(filter) = &args.function {
                 if &f.name != filter {
                     continue;
                 }
@@ -267,8 +267,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    let start = Instant::now();
+    let assembly = emitter::emit::<MicrosoftX64>(args.ip, &mut module)?;
+    elapsed += start.elapsed();
+
     if args.asm {
-        dump(&assembly, &module, args.ip, args.func.as_deref());
+        dump(&assembly, &module, args.ip, args.function.as_deref());
     }
 
     println!(

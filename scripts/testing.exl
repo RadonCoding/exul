@@ -1,0 +1,14 @@
+fn f1() {
+    return 200
+}
+
+fn main() {
+    a = 100
+    b = f1()
+
+    for i = 0; i < 5; i++ {
+        a ^= b
+    }
+
+    return a
+}
