@@ -139,13 +139,12 @@ impl Lowerer {
         }
 
         let imports = self.ctx.imports.clone();
-        let resolve_id = self.builtins[&Builtin::Resolve];
 
         if !imports.is_empty() {
-            if !self.compiled.contains(&resolve_id) {
+            if !self.compiled.contains(&self.builtins[&Builtin::Resolve]) {
                 self.compile_builtin(Builtin::Resolve, &mut root)?;
             }
-            let stub = self.bootstrap(entry, resolve_id);
+            let stub = self.bootstrap(entry);
             self.functions.insert(0, stub);
         }
 
@@ -163,7 +162,7 @@ impl Lowerer {
         })
     }
 
-    fn bootstrap(&mut self, entry: Option<FunctionId>, resolve_id: FunctionId) -> Function {
+    fn bootstrap(&mut self, entry: Option<FunctionId>) -> Function {
         let id = self.ctx.next_function();
 
         self.ctx.reset();
@@ -175,7 +174,7 @@ impl Lowerer {
             self.ctx.emit(
                 InstructionKind::Call {
                     dst: result,
-                    callee: resolve_id,
+                    callee: self.builtins[&Builtin::Resolve],
                     args: vec![module, function],
                 },
                 0,

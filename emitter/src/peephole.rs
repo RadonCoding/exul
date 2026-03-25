@@ -255,10 +255,6 @@ impl<'a> Peephole<'a> {
             return None;
         }
 
-        // if !self.symbol_read_after(base, i + 2) {
-        //     return None;
-        // }
-
         let src = Value::Address {
             base: Some(base),
             index: None,
