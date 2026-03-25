@@ -32,6 +32,7 @@ impl Liveness {
         }
 
         let mut inflows = vec![HashSet::new(); instructions.len()];
+
         let mut dirty = true;
 
         while dirty {

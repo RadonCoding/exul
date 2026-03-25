@@ -10,17 +10,9 @@ impl<C: Convention> Emitter<C> {
         dst: SymbolId,
         src: Value,
     ) -> Result<(), Box<dyn Error>> {
-        // 1. Check if the value is already in a register
-        if let Some(existing_reg) = ctx.registers.tracked_register(src) {
-            // If it's already in a register, just start tracking the new symbol
-            // as pointing to that same register. No instruction emitted.
-            self.spill_and_track(ctx, dst, existing_reg)?;
-        } else {
-            // 2. Fallback: Only use scratch if we absolutely must move the value
-            let reg = self.scratch(ctx)?;
-            self.load_to_register(ctx, src, reg)?;
-            self.spill_and_track(ctx, dst, reg)?;
-        }
+        let reg = self.scratch(ctx)?;
+        self.load_to_register(ctx, src, reg)?;
+        self.spill_and_track(ctx, dst, reg)?;
         Ok(())
     }
 
