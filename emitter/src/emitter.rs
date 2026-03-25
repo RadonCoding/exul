@@ -145,13 +145,7 @@ impl<C: Convention> Emitter<C> {
         dst: SymbolId,
         reg: Register,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(&offset) = ctx.slots.get(&dst) {
-            if !ctx.registers.is_written(dst) {
-                self.asm.mov(ptr(rbp - offset), r64!(reg))?;
-                ctx.registers.set_written(dst);
-                ctx.registers.set_clean(reg);
-            }
-        }
+        self.store(ctx, dst, reg)?;
         ctx.registers.untrack(reg);
         ctx.registers.track(reg, Value::Symbol(dst));
 
