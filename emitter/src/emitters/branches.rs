@@ -27,6 +27,26 @@ impl<C: Convention> Emitter<C> {
                 let l = self.get_label(ctx, dst);
                 self.asm.jne(l)?;
             }
+            InstructionKind::JumpIfLt { left, right, dst } => {
+                self.emit_compare_flags(ctx, left, right)?;
+                let l = self.get_label(ctx, dst);
+                self.asm.jl(l)?;
+            }
+            InstructionKind::JumpIfLte { left, right, dst } => {
+                self.emit_compare_flags(ctx, left, right)?;
+                let l = self.get_label(ctx, dst);
+                self.asm.jle(l)?;
+            }
+            InstructionKind::JumpIfGt { left, right, dst } => {
+                self.emit_compare_flags(ctx, left, right)?;
+                let l = self.get_label(ctx, dst);
+                self.asm.jg(l)?;
+            }
+            InstructionKind::JumpIfGte { left, right, dst } => {
+                self.emit_compare_flags(ctx, left, right)?;
+                let l = self.get_label(ctx, dst);
+                self.asm.jge(l)?;
+            }
             InstructionKind::Jump(id) => {
                 let l = self.get_label(ctx, id);
                 self.asm.jmp(l)?;

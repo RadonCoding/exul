@@ -149,11 +149,11 @@ impl Registers {
                     assert!(
                         self.is_written(s),
                         "attempted to load symbol '{:?}' from stack slot before it was ever stored",
-                        s,
+                        s
                     );
                     return Operand::Stack(offset);
                 }
-                panic!("symbol '{:?}' has no register nor a stack slot", s,)
+                panic!("symbol '{:?}' has no register nor a stack slot", s)
             }
             _ => unreachable!(),
         }

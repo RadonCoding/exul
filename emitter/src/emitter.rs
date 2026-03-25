@@ -570,6 +570,10 @@ impl<C: Convention> Emitter<C> {
             InstructionKind::JumpIfFalse { .. }
             | InstructionKind::JumpIfEq { .. }
             | InstructionKind::JumpIfNotEq { .. }
+            | InstructionKind::JumpIfLt { .. }
+            | InstructionKind::JumpIfLte { .. }
+            | InstructionKind::JumpIfGt { .. }
+            | InstructionKind::JumpIfGte { .. }
             | InstructionKind::Jump { .. } => self.compile_branch(ctx, kind),
             _ => unreachable!(),
         }

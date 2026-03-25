@@ -24,9 +24,11 @@ impl<'a> Peephole<'a> {
             let consumed = self
                 .try_call_assign(i)
                 .or_else(|| self.try_compare_branch(i))
+                .or_else(|| self.try_multiply_to_shift(i))
+                .or_else(|| self.try_fuse_index(i))
+                .or_else(|| self.try_fuse_displacement(i))
                 .or_else(|| self.try_remove_unreachable(i))
                 .or_else(|| self.try_remove_redundant_jump(i))
-                .or_else(|| self.try_multiply_to_shift(i))
                 .or_else(|| self.try_remove_dead_store(i));
 
             match consumed {
@@ -78,7 +80,7 @@ impl<'a> Peephole<'a> {
         None
     }
 
-    /// Merges an [`InstructionKind::Eq`] or [`InstructionKind::NotEq`] comparison with its dependent [`InstructionKind::JumpIfFalse`] into a single branch.
+    /// Merges an comparison with its dependent [`InstructionKind::JumpIfFalse`] into a single branch.
     fn try_compare_branch(&mut self, i: usize) -> Option<usize> {
         if i + 1 >= self.function.instructions.len() {
             return None;
@@ -128,11 +130,267 @@ impl<'a> Peephole<'a> {
                     self.function.instructions.remove(i + 1);
                     return Some(1);
                 }
+                InstructionKind::Lt {
+                    dst: lt_dst,
+                    left: lt_left,
+                    right: lt_right,
+                } if lt_dst == jif_condition && !self.symbol_read_after(lt_dst, i + 2) => {
+                    self.function.instructions[i] = Instruction {
+                        kind: InstructionKind::JumpIfGte {
+                            left: lt_left,
+                            right: lt_right,
+                            dst: jif_dst,
+                        },
+                        offset: current.offset,
+                    };
+                    self.function.instructions.remove(i + 1);
+                    return Some(1);
+                }
+                InstructionKind::Lte {
+                    dst: lte_dst,
+                    left: lte_left,
+                    right: lte_right,
+                } if lte_dst == jif_condition && !self.symbol_read_after(lte_dst, i + 2) => {
+                    self.function.instructions[i] = Instruction {
+                        kind: InstructionKind::JumpIfGt {
+                            left: lte_left,
+                            right: lte_right,
+                            dst: jif_dst,
+                        },
+                        offset: current.offset,
+                    };
+                    self.function.instructions.remove(i + 1);
+                    return Some(1);
+                }
+                InstructionKind::Gt {
+                    dst: gt_dst,
+                    left: gt_left,
+                    right: gt_right,
+                } if gt_dst == jif_condition && !self.symbol_read_after(gt_dst, i + 2) => {
+                    self.function.instructions[i] = Instruction {
+                        kind: InstructionKind::JumpIfLte {
+                            left: gt_left,
+                            right: gt_right,
+                            dst: jif_dst,
+                        },
+                        offset: current.offset,
+                    };
+                    self.function.instructions.remove(i + 1);
+                    return Some(1);
+                }
+                InstructionKind::Gte {
+                    dst: gte_dst,
+                    left: gte_left,
+                    right: gte_right,
+                } if gte_dst == jif_condition && !self.symbol_read_after(gte_dst, i + 2) => {
+                    self.function.instructions[i] = Instruction {
+                        kind: InstructionKind::JumpIfLt {
+                            left: gte_left,
+                            right: gte_right,
+                            dst: jif_dst,
+                        },
+                        offset: current.offset,
+                    };
+                    self.function.instructions.remove(i + 1);
+                    return Some(1);
+                }
                 _ => {}
             }
         }
 
         None
+    }
+
+    /// Replaces a [`InstructionKind::Mul`] by a power-of-two constant with a [`InstructionKind::Shl`].
+    fn try_multiply_to_shift(&mut self, i: usize) -> Option<usize> {
+        let current = &self.function.instructions[i];
+
+        if let InstructionKind::Mul { dst, left, right } = current.kind {
+            if let Value::Constant(n) = right {
+                if n > 0 && n.count_ones() == 1 {
+                    let shift = n.trailing_zeros() as i64;
+                    self.function.instructions[i] = Instruction {
+                        kind: InstructionKind::Shl {
+                            dst,
+                            left,
+                            right: Value::Constant(shift),
+                        },
+                        offset: current.offset,
+                    };
+                    return Some(0);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Fuses memory access into a [`Value::Address`] for a following [`InstructionKind::Load`] or [`InstructionKind::Store`].
+    fn try_fuse_displacement(&mut self, i: usize) -> Option<usize> {
+        if i + 1 >= self.function.instructions.len() {
+            return None;
+        }
+
+        let (a, b) = {
+            let a = self.function.instructions[i].clone();
+            let b = self.function.instructions[i + 1].clone();
+            (a, b)
+        };
+
+        let (middle, base, displacement) = match a.kind {
+            InstructionKind::Add {
+                dst,
+                left: Value::Symbol(s),
+                right: Value::Constant(c),
+            } => (dst, s, c as i32),
+            InstructionKind::Add {
+                dst,
+                left: Value::Constant(c),
+                right: Value::Symbol(s),
+            } => (dst, s, c as i32),
+            _ => return None,
+        };
+
+        if self.symbol_read_after(middle, i + 2) {
+            return None;
+        }
+
+        // if !self.symbol_read_after(base, i + 2) {
+        //     return None;
+        // }
+
+        let src = Value::Address {
+            base: Some(base),
+            index: None,
+            displacement,
+        };
+
+        match b.kind {
+            InstructionKind::Load {
+                dst,
+                size,
+                src: Value::Symbol(s),
+            } if s == middle => {
+                self.function.instructions[i] = Instruction {
+                    kind: InstructionKind::Load { dst, size, src },
+                    offset: a.offset,
+                };
+                self.function.instructions.remove(i + 1);
+                Some(1)
+            }
+            InstructionKind::Store {
+                size,
+                dst: Value::Symbol(s),
+                src: val,
+            } if s == middle => {
+                self.function.instructions[i] = Instruction {
+                    kind: InstructionKind::Store {
+                        size,
+                        dst: src,
+                        src: val,
+                    },
+                    offset: a.offset,
+                };
+                self.function.instructions.remove(i + 1);
+                Some(1)
+            }
+            _ => None,
+        }
+    }
+
+    /// Fuses memory access into a [`Value::Address`] for a following [`InstructionKind::Load`] or [`InstructionKind::Store`].
+    fn try_fuse_index(&mut self, i: usize) -> Option<usize> {
+        if i + 2 >= self.function.instructions.len() {
+            return None;
+        }
+
+        let (a, b, c) = {
+            let a = self.function.instructions[i].clone();
+            let b = self.function.instructions[i + 1].clone();
+            let c = self.function.instructions[i + 2].clone();
+            (a, b, c)
+        };
+
+        let (scaled, index, scale) = match a.kind {
+            InstructionKind::Shl {
+                dst,
+                left: Value::Symbol(s),
+                right: Value::Constant(shift),
+            } if shift >= 0 && shift <= 3 => (dst, s, 1i32 << shift),
+            InstructionKind::Mul {
+                dst,
+                left: Value::Symbol(s),
+                right: Value::Constant(val),
+            } if matches!(val, 1 | 2 | 4 | 8) => (dst, s, val as i32),
+            _ => return None,
+        };
+
+        let (address, base) = match b.kind {
+            InstructionKind::Add {
+                dst,
+                left,
+                right: Value::Symbol(s),
+            } if s == scaled => (dst, left),
+            InstructionKind::Add {
+                dst,
+                left: Value::Symbol(s),
+                right,
+            } if s == scaled => (dst, right),
+            _ => return None,
+        };
+
+        if self.symbol_read_after(scaled, i + 2) {
+            return None;
+        }
+        if self.symbol_read_after(address, i + 3) {
+            return None;
+        }
+
+        let (base, displacement) = match base {
+            Value::Symbol(s) => (Some(s), 0i32),
+            Value::Constant(c) => (None, c as i32),
+            _ => return None,
+        };
+
+        let src = Value::Address {
+            base,
+            index: Some((index, scale)),
+            displacement,
+        };
+
+        match c.kind {
+            InstructionKind::Load {
+                dst,
+                size,
+                src: Value::Symbol(s),
+            } if s == address => {
+                self.function.instructions[i] = Instruction {
+                    kind: InstructionKind::Load { dst, size, src },
+                    offset: a.offset,
+                };
+                self.function.instructions.remove(i + 2);
+                self.function.instructions.remove(i + 1);
+                Some(1)
+            }
+            InstructionKind::Store {
+                size,
+                dst: Value::Symbol(s),
+                src: val,
+            } if s == address => {
+                self.function.instructions[i] = Instruction {
+                    kind: InstructionKind::Store {
+                        size,
+                        dst: src,
+                        src: val,
+                    },
+                    offset: a.offset,
+                };
+                self.function.instructions.remove(i + 2);
+                self.function.instructions.remove(i + 1);
+                Some(1)
+            }
+            _ => None,
+        }
     }
 
     /// Discards code that follows an unconditional terminator like [`InstructionKind::Return`] or [`InstructionKind::Jump`].
@@ -172,30 +430,6 @@ impl<'a> Peephole<'a> {
                     }
                     InstructionKind::Label(_) => j += 1,
                     _ => break,
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Replaces a [`InstructionKind::Mul`] by a power-of-two constant with a [`InstructionKind::Shl`].
-    fn try_multiply_to_shift(&mut self, i: usize) -> Option<usize> {
-        let current = &self.function.instructions[i];
-
-        if let InstructionKind::Mul { dst, left, right } = current.kind {
-            if let Value::Constant(n) = right {
-                if n > 0 && n.count_ones() == 1 {
-                    let shift = n.trailing_zeros() as i64;
-                    self.function.instructions[i] = Instruction {
-                        kind: InstructionKind::Shl {
-                            dst,
-                            left,
-                            right: Value::Constant(shift),
-                        },
-                        offset: current.offset,
-                    };
-                    return Some(1);
                 }
             }
         }

@@ -15,12 +15,27 @@ pub enum Value {
     Symbol(SymbolId),
     Constant(i64),
     String(usize),
+    Address {
+        base: Option<SymbolId>,
+        index: Option<(SymbolId, i32)>,
+        displacement: i32,
+    },
 }
 
 impl Value {
     fn symbols(&self) -> Vec<SymbolId> {
         match self {
             Value::Symbol(s) => vec![*s],
+            Value::Address { base, index, .. } => {
+                let mut syms = Vec::new();
+                if let Some(s) = base {
+                    syms.push(*s);
+                }
+                if let Some((s, _)) = index {
+                    syms.push(*s);
+                }
+                syms
+            }
             _ => vec![],
         }
     }
@@ -192,6 +207,26 @@ pub enum InstructionKind {
         right: Value,
         dst: LabelId,
     },
+    JumpIfLt {
+        left: Value,
+        right: Value,
+        dst: LabelId,
+    },
+    JumpIfLte {
+        left: Value,
+        right: Value,
+        dst: LabelId,
+    },
+    JumpIfGt {
+        left: Value,
+        right: Value,
+        dst: LabelId,
+    },
+    JumpIfGte {
+        left: Value,
+        right: Value,
+        dst: LabelId,
+    },
     Jump(LabelId),
 }
 
@@ -230,7 +265,11 @@ impl InstructionKind {
             | InstructionKind::Shl { left, right, .. }
             | InstructionKind::Shr { left, right, .. }
             | InstructionKind::JumpIfEq { left, right, .. }
-            | InstructionKind::JumpIfNotEq { left, right, .. } => {
+            | InstructionKind::JumpIfNotEq { left, right, .. }
+            | InstructionKind::JumpIfLt { left, right, .. }
+            | InstructionKind::JumpIfLte { left, right, .. }
+            | InstructionKind::JumpIfGt { left, right, .. }
+            | InstructionKind::JumpIfGte { left, right, .. } => {
                 symbols.extend(left.symbols());
                 symbols.extend(right.symbols());
             }
@@ -302,7 +341,11 @@ impl InstructionKind {
             InstructionKind::Jump(l) => vec![*l],
             InstructionKind::JumpIfFalse { dst, .. }
             | InstructionKind::JumpIfEq { dst, .. }
-            | InstructionKind::JumpIfNotEq { dst, .. } => vec![*dst],
+            | InstructionKind::JumpIfNotEq { dst, .. }
+            | InstructionKind::JumpIfLt { dst, .. }
+            | InstructionKind::JumpIfLte { dst, .. }
+            | InstructionKind::JumpIfGt { dst, .. }
+            | InstructionKind::JumpIfGte { dst, .. } => vec![*dst],
             _ => vec![],
         }
     }
