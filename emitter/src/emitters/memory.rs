@@ -4,7 +4,7 @@ use crate::{
     emitter::Emitter,
     macros::{r8, r16, r32, r64},
 };
-use iced_x86::code_asm::{byte_ptr, dword_ptr, ptr, qword_ptr, rbp, word_ptr};
+use iced_x86::code_asm::{byte_ptr, dword_ptr, ptr, qword_ptr, word_ptr};
 use intermediate::{Memory, Segment, SymbolId, Value};
 use std::error::Error;
 
