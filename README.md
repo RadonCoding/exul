@@ -1,10 +1,5 @@
 Scripting language that compiles to x86 assembly.
 
-## Highlights
-- Standard library written in the language itself, compiled on-demand when referenced.
-- External imports are resolved at runtime without relying on a loader.
-- Sized memory access, segment registers, and external imports as first-class language constructs
-
 ## How it works
 
 ### 1. Analysis
@@ -26,7 +21,7 @@ Scripting language that compiles to x86 assembly.
 `cargo run --bin compiler -- <filename> [options]`
 ```text
 --output <path>   path to the output executable
---ip <address>    starting instruction pointer
+--ip <address>    base instruction pointer
 --tokens          print lexical tokens
 --ast             print abstract syntax tree
 --ir              print intermediate representation
