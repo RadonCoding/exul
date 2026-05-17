@@ -11,6 +11,7 @@ use crate::ast::{self, Tree};
 use crate::lex;
 
 const BOOTSTRAP: &str = "__bootstrap__";
+
 const ENTRY_POINT: &str = "main";
 
 pub fn generate(tree: Tree) -> Result<Module, Box<dyn Error>> {

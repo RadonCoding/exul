@@ -9,3 +9,4 @@ regex = "1.12.3"
 iced-x86 = "1.21.0"
 intermediate = { path = "../intermediate" }
 emitter = { path = "../emitter" }
+object = { version = "0.39.1", features = ["write"] }
