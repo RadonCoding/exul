@@ -1,4 +1,3 @@
-mod args;
 mod ast;
 mod lex;
 mod linker;
@@ -8,10 +7,33 @@ mod symbols;
 
 use clap::Parser;
 use emitter::{convention::MicrosoftX64, peephole};
-use std::{error::Error, fs, time::Instant};
+use std::{error::Error, fs, path::PathBuf, time::Instant};
 
-use args::Args;
 use linker::{Format, LinkerOptions};
+
+#[derive(Parser)]
+#[command(author, version)]
+pub struct Args {
+    pub input: PathBuf,
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+    #[arg(
+        long,
+        default_value = "0",
+        value_parser = |s: &str| u64::from_str_radix(s.trim_start_matches("0x"), 16)
+    )]
+    pub ip: u64,
+    #[arg(long)]
+    pub tokens: bool,
+    #[arg(long)]
+    pub ast: bool,
+    #[arg(long)]
+    pub ir: bool,
+    #[arg(long)]
+    pub asm: bool,
+    #[arg(long)]
+    pub function: Option<String>,
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
