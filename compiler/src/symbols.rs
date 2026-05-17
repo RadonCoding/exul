@@ -38,6 +38,7 @@ pub fn build_symbols(assembly: &Assembly, module: &Module, ip: u64) -> HashMap<u
     }
 
     let import_base = assembly.blobs.last().map(|b| b.offset + b.len).unwrap_or(0);
+    
     for (i, import) in module.imports.iter().enumerate() {
         map.insert(
             ip + (import_base + i * 8) as u64,
