@@ -406,7 +406,7 @@ impl<'a> Peephole<'a> {
         // If the block has terminated, subsequent instructions are dead until a new entry point is defined.
         if is_terminator && !matches!(current.kind, InstructionKind::Label(_)) {
             self.function.instructions.remove(i);
-            return Some(0); // current index now points to next element
+            return Some(0);
         }
 
         None
