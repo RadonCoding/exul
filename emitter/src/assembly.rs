@@ -4,7 +4,7 @@ use intermediate::FunctionId;
 
 pub struct Assembly {
     pub bytes: Vec<u8>,
-    pub blobs: Vec<Blob>,
+    pub sections: Vec<Blob>,
     pub functions: HashMap<FunctionId, usize>,
 }
 

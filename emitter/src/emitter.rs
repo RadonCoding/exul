@@ -442,7 +442,7 @@ impl<C: Convention> Emitter<C> {
 
         Ok(Assembly {
             bytes: result.inner.code_buffer,
-            blobs: sections,
+            sections,
             functions,
         })
     }

@@ -7,7 +7,11 @@ use crate::symbols::{Symbols, build_symbols};
 pub fn asm(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) -> bool {
     let symbols = build_symbols(assembly, module, ip);
 
-    let imports_start = assembly.blobs.last().map(|b| b.offset + b.len).unwrap_or(0);
+    let imports_start = assembly
+        .sections
+        .last()
+        .map(|b| b.offset + b.len)
+        .unwrap_or(0);
     let imports_end = imports_start + module.imports.len() * 8;
 
     let mut formatter = MasmFormatter::with_options(Some(Box::new(Symbols(symbols.clone()))), None);
@@ -23,13 +27,13 @@ pub fn asm(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) 
     let mut offset = 0;
 
     while offset < assembly.bytes.len() {
-        if let Some(blob) = assembly.blobs.iter().find(|b| b.offset == offset) {
+        if let Some(blob) = assembly.sections.iter().find(|b| b.offset == offset) {
             let hex = assembly.bytes[offset..offset + blob.len]
                 .iter()
                 .map(|b| format!("{:02x}", b))
                 .collect::<String>();
 
-            let display = match std::str::from_utf8(&blob.content[..blob.content.len() - 1]) {
+            let display = match str::from_utf8(&blob.content[..blob.content.len() - 1]) {
                 Ok(s) => format!("\"{}\"", s),
                 Err(_) => format!("<{} bytes>", blob.len),
             };
@@ -41,7 +45,7 @@ pub fn asm(assembly: &Assembly, module: &Module, ip: u64, filter: Option<&str>) 
         }
 
         if assembly
-            .blobs
+            .sections
             .iter()
             .any(|b| offset >= b.offset && offset < b.offset + b.len)
         {

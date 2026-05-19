@@ -19,7 +19,7 @@ pub struct Args {
     pub output: Option<PathBuf>,
     #[arg(
         long,
-        default_value = "0",
+        default_value = "0x1000",
         value_parser = |s: &str| u64::from_str_radix(s.trim_start_matches("0x"), 16)
     )]
     pub ip: u64,
