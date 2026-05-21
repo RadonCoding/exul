@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="https://github.com/RadonCoding/exul/blob/main/example.gif?raw=true" width="50%" />
+    <img src="https://github.com/RadonCoding/exul/blob/main/example.gif?raw=true" />
 </div>
 <br/>
 
