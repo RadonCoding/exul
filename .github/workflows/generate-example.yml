@@ -6,16 +6,19 @@ on:
       - main
 jobs:
   generate-example:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: charmbracelet/vhs-action@v2
-        with:
-          path: example.tape
+      - name: Run Build
+        run: cargo build --bin compiler --release
+
+      - name: Generate example
+        run: |
+          docker run --rm -v $PWD:/vhs ghcr.io/charmbracelet/vhs example.tape
 
       - name: Commit and push
         uses: EndBug/add-and-commit@v9
