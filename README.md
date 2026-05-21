@@ -1,7 +1,4 @@
-<div align="center">
-    <img src="https://github.com/RadonCoding/exul/blob/main/example.gif?raw=true" />
-</div>
-<br/>
+![](example.gif)
 
 Scripting language that compiles to x86 assembly.
 
