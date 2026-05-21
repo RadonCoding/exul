@@ -1,6 +1,6 @@
 ![](example.gif)
 
-Scripting language that compiles to x86 assembly.
+Scripting language that compiles to x86-64 assembly.
 
 ## How it works
 
