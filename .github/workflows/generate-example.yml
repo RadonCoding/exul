@@ -14,7 +14,7 @@ jobs:
 
       - uses: charmbracelet/vhs-action@v2
         with:
-          path: scripts/example.tape
+          path: example.tape
 
       - name: Commit and push example
         uses: EndBug/add-and-commit@v9
