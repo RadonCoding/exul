@@ -1,0 +1,26 @@
+name: Generate Example
+
+on:
+  push:
+    branches:
+      - main
+jobs:
+  generate-example:
+    permissions: write-all
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: charmbracelet/vhs-action@v2
+        with:
+          path: scripts/example.tape
+
+      - name: Commit and push example
+        uses: EndBug/add-and-commit@v9
+        with:
+          author_name: github-actions
+          author_email: github-actions@github.com
+          add: "example.gif"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

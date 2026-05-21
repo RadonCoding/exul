@@ -1,3 +1,5 @@
+![](example.gif)
+
 Scripting language that compiles to x86 assembly.
 
 ## How it works

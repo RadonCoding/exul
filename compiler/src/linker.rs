@@ -12,9 +12,9 @@ pub struct LinkerOptions {
 impl Default for LinkerOptions {
     fn default() -> Self {
         Self {
-            image_base: 0x400000,
-            stack_reserve: 0x100000,
-            stack_commit: 0x1000,
+            image_base: 0x0000000140000000,
+            stack_reserve: 0x0000000000100000,
+            stack_commit: 0x0000000000001000,
         }
     }
 }
