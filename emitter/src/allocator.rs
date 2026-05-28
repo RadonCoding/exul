@@ -69,19 +69,19 @@ impl Liveness {
         Self { ranges }
     }
 
-    /// Iterate over all live ranges.
+    /// Iterate over all live ranges
     pub fn iter(&self) -> impl Iterator<Item = (&SymbolId, &Range<usize>)> {
         self.ranges.iter()
     }
 
-    /// Whether the symbol is live at the given cursor position.
+    /// Whether the symbol is live at the given cursor position
     pub fn is_live(&self, sym: SymbolId, cursor: usize) -> bool {
         self.ranges
             .get(&sym)
             .map_or(false, |range| range.start <= cursor && cursor < range.end)
     }
 
-    /// Whether the symbol will be live after the given instruction.
+    /// Whether the symbol will be live after the given instruction
     pub fn will_be_live(&self, sym: SymbolId, cursor: usize) -> bool {
         self.ranges
             .get(&sym)
